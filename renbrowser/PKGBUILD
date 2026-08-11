@@ -1,0 +1,142 @@
+# Maintainer: Sophie <goldsnakeking@gmail.com>
+
+# Ren Browser, built from source. Upstream ships packaging/arch/PKGBUILD but it
+# is a developer convenience, not a distributable recipe: it symlinks the live
+# working checkout into $srcdir (so makepkg mutates your git tree), its dist
+# source uses sha256sums=('SKIP'), and it sets GOTOOLCHAIN=auto which silently
+# DOWNLOADS a Go toolchain mid-build. This one fixes all three.
+#
+# ---------------------------------------------------------------------------
+# BUILDING THIS NEEDS NODE >= 22.13, WHICH MEANS NOT nodejs-lts-iron.
+#
+# The floor is real and hard, not a warning: pnpm 11.3.0 (pinned by
+# packageManager + package-manager-strict=true) dies on Node 20 with
+# ERR_UNKNOWN_BUILTIN_MODULE, so `makedepends` cannot be relaxed to nodejs>=20.
+# Verified working on 22.23.2 (= nodejs-lts-jod, and what upstream CI pins) and
+# on 24.18.1 (= nodejs-lts-krypton). Any of those providers satisfies it;
+# nodejs-lts-iron does not and conflicts with all of them.
+# ---------------------------------------------------------------------------
+#
+# NETWORK: build() runs `pnpm install`, which hits the npm registry. That is
+# unavoidable -- there is no vendored node_modules, frontend/dist is gitignored
+# and never committed on any tag, and `//go:embed all:frontend/dist`
+# (main_desktop.go:25) is a HARD compile error without it. One dependency,
+# micron-parser, is not even on the registry: it is a github: tarball ref.
+# The Go half by contrast is fully offline -- vendor/ is complete (4413 files
+# in the release tarball), which is why GOFLAGS carries -mod=vendor and
+# GOPROXY=off is safe to assert.
+
+pkgname=renbrowser
+pkgver=0.2.1
+pkgrel=1
+pkgdesc='Reticulum browser for NomadNet pages'
+arch=('x86_64')
+url='https://github.com/Quad4-Software/Ren-Browser'
+license=('MIT')
+# gtk4 already pulls cairo, pango, gdk-pixbuf2, graphene, harfbuzz, libx11 and
+# vulkan-icd-loader, all of which appear as direct NEEDED entries. libsoup3 is
+# NOT among them, so it is declared explicitly rather than leaned on via
+# webkitgtk-6.0. Read off `objdump -p` of the built binary, not guessed.
+depends=('gtk4' 'webkitgtk-6.0' 'libsoup3' 'hicolor-icon-theme')
+makedepends=('go>=1.26.5' 'nodejs>=22.13' 'pnpm' 'pkgconf')
+options=('!lto')
+
+# The micron-parser-go wasm is normally downloaded by frontend's `prebuild`
+# hook at build time, and that fetch FAILS SOFT -- build/scripts/fetch-micron-
+# wasm.mjs ends its catch block in process.exit(0), so a network blip silently
+# produces a package whose webview falls back to fetching the parser from the
+# internet at runtime. Since the file lands in frontend/public/ and is embedded
+# into the binary, that makes the output non-reproducible in a way nothing
+# warns about. Pin both assets here instead and set REN_BROWSER_OFFLINE_BUILD=1
+# in build() so a missing one is a hard failure.
+_micronver=v1.0.6
+_wasmexecver=go1.26.2
+source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz"
+        "micron-parser-go-$_micronver.wasm::https://github.com/Quad4-Software/Micron-Parser-Go/releases/download/$_micronver/micron-parser-go.wasm"
+        "wasm_exec-$_wasmexecver.js::https://raw.githubusercontent.com/golang/go/$_wasmexecver/lib/wasm/wasm_exec.js")
+sha256sums=('a2707d4afe12d7215281d75766df77ed86c1fca12515f4b24ceb1561016308f3'
+            '10ac22580a610e5f87408e5eb5da9da37f3ce5a0513100c872d608ab077b0c57'
+            '0c949f4996f9a89698e4b5c586de32249c3b69b7baadb64d220073cc04acba14')
+
+_srcdir="Ren-Browser-$pkgver"
+
+prepare() {
+	cd "$_srcdir"
+	# Where the prebuild hook would have put them.
+	install -d frontend/public/vendor/micron-parser-go
+	cp "$srcdir/micron-parser-go-$_micronver.wasm" \
+		frontend/public/vendor/micron-parser-go/micron-parser-go.wasm
+	cp "$srcdir/wasm_exec-$_wasmexecver.js" \
+		frontend/public/vendor/micron-parser-go/wasm_exec.js
+}
+
+build() {
+	cd "$_srcdir"
+
+	export REN_BROWSER_OFFLINE_BUILD=1
+
+	# Workspace ROOT, not --dir frontend. frontend/pnpm-lock.yaml is stale --
+	# it has no micron-parser entry at all and still resolves @lucide/svelte
+	# ^0.511.0 -- so installing from inside frontend/ gets wrong versions.
+	# --frozen-lockfile is not upstream's default (Makefile runs a bare
+	# `pnpm install`, the Taskfile runs --frozen-lockfile=false) but without it
+	# `"@wailsio/runtime": "latest"` floats and the package stops being
+	# reproducible.
+	pnpm install --frozen-lockfile
+	pnpm --dir frontend run build
+
+	# Re-applies wails patches under vendor/. Every sed is grep-guarded so this
+	# is idempotent, but it does write into $srcdir -- which is exactly why
+	# upstream's symlink-the-live-checkout approach is a bad idea.
+	bash build/scripts/patch-wails-vendor.sh
+
+	export CGO_ENABLED=1
+	export GOFLAGS='-mod=vendor -buildmode=pie -trimpath'
+	export GOPROXY=off
+	# NOT `auto`. go.mod's `go 1.26.5` is a hard toolchain floor with no
+	# `toolchain` directive, and auto answers a too-old distro go by
+	# downloading one mid-build. local turns that into a loud failure, which is
+	# what makedepends=('go>=1.26.5') is there to prevent in the first place.
+	export GOTOOLCHAIN=local
+
+	# The release tarball has no .git, so the Makefile's `git rev-parse` would
+	# bake the literal string "dev" into --version. Use the tag instead. Build
+	# time comes from SOURCE_DATE_EPOCH so repeat builds agree.
+	local _commit="v$pkgver"
+	local _btime
+	_btime=$(date -u -d "@${SOURCE_DATE_EPOCH:-$(date +%s)}" +'%Y-%m-%dT%H:%M:%SZ')
+
+	go build -tags production -buildvcs=false \
+		-ldflags="-w -s \
+			-X renbrowser/internal/buildinfo.Version=$pkgver \
+			-X renbrowser/internal/buildinfo.Commit=$_commit \
+			-X renbrowser/internal/buildinfo.BuildTime=$_btime" \
+		-o "bin/$pkgname" .
+}
+
+package() {
+	cd "$_srcdir"
+
+	install -Dm755 "bin/$pkgname" "$pkgdir/usr/bin/$pkgname"
+
+	# flatpak/ holds the real desktop file. build/linux/ has three more that are
+	# decoys -- one is a stale template with Exec=/usr/local/bin/renbrowser, and
+	# the wails3-generated one is regenerated by a Taskfile target this build
+	# never runs. Only this one reaches upstream's own package.
+	install -Dm644 flatpak/io.quad4.renbrowser.desktop \
+		"$pkgdir/usr/share/applications/io.quad4.renbrowser.desktop"
+	install -Dm644 flatpak/io.quad4.renbrowser.svg \
+		"$pkgdir/usr/share/icons/hicolor/scalable/apps/io.quad4.renbrowser.svg"
+
+	# build/appicon.png really is 512x512; upstream's nfpm config files it under
+	# 128x128, which ships a size-mismatched icon that GTK then rescales.
+	install -Dm644 build/appicon.png \
+		"$pkgdir/usr/share/icons/hicolor/512x512/apps/io.quad4.renbrowser.png"
+
+	# Neither nfpm nor upstream's PKGBUILD installs this; only the flatpak
+	# manifest does. Without it the app has no AppStream entry.
+	install -Dm644 flatpak/io.quad4.renbrowser.metainfo.xml \
+		"$pkgdir/usr/share/metainfo/io.quad4.renbrowser.metainfo.xml"
+
+	install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+}
