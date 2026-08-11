@@ -2,12 +2,18 @@
 
 pkgname=lxmf-rs
 pkgver=0.9.8
-pkgrel=1
+pkgrel=2
 pkgdesc="Reticulum network stack and LXMF messaging implemented in Rust"
 arch=('x86_64')
 url="https://github.com/FreeTAKTeam/LXMF-rs"
 license=('EPL-2.0')
-depends=('gcc-libs' 'glibc')
+# Read off the built binaries with ldd, not guessed: bzip2 (Resource-layer
+# compression), dbus and systemd-libs are all linked and were missing from the
+# pkgrel=1 build. They happen to be present on any systemd Arch system, so that
+# build works -- it is just wrong, and would fail in a minimal chroot.
+# gcc-libs rather than CachyOS's libgcc, which owns libgcc_s.so.1 here but does
+# not exist on stock Arch.
+depends=('glibc' 'gcc-libs' 'bzip2' 'dbus' 'systemd-libs')
 makedepends=('cargo')
 # Deliberately NOT conflicting with python-rns -- see package() for how the
 # overlapping tool names are kept apart. Running both stacks at once is the
