@@ -2,6 +2,8 @@
 # Build PKGBUILDs from this repo and publish them into the local pacman
 # repository, so pamac lists them exactly like [kotontrion] or [extra].
 #
+#   minkarepo init            create an empty database (run this FIRST, before
+#                             adding [minka] to pacman.conf)
 #   minkarepo publish <pkg>   build, then add to the repo  (the usual one)
 #   minkarepo build   <pkg>   makepkg only, leaves the package in its dir
 #   minkarepo add     <pkg>   add an already-built package to the repo
@@ -28,7 +30,7 @@ self=$(cd "$(dirname "$0")" && pwd)
 die() { echo "minkarepo: $*" >&2; exit 1; }
 
 usage() {
-	sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//' >&2
+	sed -n '2,14p' "$0" | sed 's/^# \{0,1\}//' >&2
 	exit 1
 }
 
@@ -46,6 +48,30 @@ need_pkgdir() {
 	pkgdir=$self/$1
 	[ -d "$pkgdir" ] || die "no such package directory: $1"
 	[ -f "$pkgdir/PKGBUILD" ] || die "$1 has no PKGBUILD"
+}
+
+# `repo-add` refuses to create a database with no packages in it ("No changes
+# made to package database"), so adding [minka] to pacman.conf before the first
+# package exists gives:
+#     error: failed retrieving file 'minka.db' from disk
+# An empty database fixes that, letting the repo be configured before it holds
+# anything. Both .db and .files are created because `pacman -Fy` wants the
+# latter, and its absence is the same failure with a different filename.
+do_init() {
+	need_repo
+	for kind in db files; do
+		archive=$REPO/$DB.$kind.tar.zst
+		if [ -e "$archive" ]; then
+			echo "==> $DB.$kind already exists, leaving it alone"
+			continue
+		fi
+		echo "==> creating empty $DB.$kind"
+		tar --zstd -cf "$archive" -T /dev/null
+		ln -sf "$DB.$kind.tar.zst" "$REPO/$DB.$kind"
+	done
+	echo
+	echo "Empty repo ready. Now:"
+	echo "  sudo pacman -Sy"
 }
 
 do_build() {
@@ -107,6 +133,7 @@ cmd=${1:-}
 # `set -e` that exits before the usage message is ever printed.
 [ $# -gt 0 ] && shift || true
 case $cmd in
+	init)    do_init ;;
 	build)   do_build "${1:-}" ;;
 	add)     do_add "${1:-}" ;;
 	publish) do_build "${1:-}"; do_add "${1:-}" ;;

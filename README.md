@@ -27,8 +27,19 @@ sudo mkdir -p /srv/localrepo/x86_64
 sudo chown "$(id -un):$(id -gn)" /srv/localrepo/x86_64
 ```
 
-Add to the end of `/etc/pacman.conf`, after `[kotontrion]`, so it can't shadow
-a system package:
+Then create an empty database — **before** touching `pacman.conf`:
+
+```sh
+./minkarepo init
+```
+
+`repo-add` refuses to create a database with no packages in it, so configuring
+the repo first gives `failed retrieving file 'minka.db' from disk` on the next
+`pacman -Sy`. `init` writes an empty `.db` and `.files` so the repo can be
+configured while still empty.
+
+Now add to the end of `/etc/pacman.conf`, after `[kotontrion]`, so it can't
+shadow a system package:
 
 ```ini
 [minka]
@@ -46,6 +57,7 @@ Then `sudo pacman -Sy`.
 ## Usage
 
 ```sh
+./minkarepo init               # create an empty db (one-time, before pacman.conf)
 ./minkarepo publish lxmf-rs    # build, then add to the repo
 ./minkarepo build   lxmf-rs    # build only
 ./minkarepo add     lxmf-rs    # add an already-built package
