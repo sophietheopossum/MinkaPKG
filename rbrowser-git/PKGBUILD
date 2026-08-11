@@ -1,0 +1,76 @@
+# Maintainer: Sophie <goldsnakeking@gmail.com>
+
+# A -git package because upstream publishes NO tags or releases -- the only
+# reference is a moving `main`. Note that main has not moved since 2025-12-16,
+# so despite the -git suffix this is effectively a snapshot of an eight-month-old
+# tree. GitHub's `updated_at` field says 2026-08-10, but that bumps on stars and
+# forks; `pushed_at` is the one that tracks code.
+#
+# It declares `rns>=1.0.0` unpinned while the AUR ships python-rns 1.4.2, so
+# API drift is the likely failure mode. If it breaks, that is where to look.
+
+pkgname=rbrowser-git
+_pkgname=rBrowser
+pkgver=r0.20251216
+pkgrel=1
+pkgdesc="Standalone web UI browser for NomadNet nodes and pages over Reticulum"
+arch=('any')
+url="https://github.com/fr33n0w/rBrowser"
+license=('MIT')
+depends=('python' 'python-rns' 'python-flask' 'python-waitress')
+makedepends=('git')
+provides=('rbrowser')
+conflicts=('rbrowser')
+source=("git+$url.git")
+sha256sums=('SKIP')
+
+pkgver() {
+	cd "$_pkgname"
+	printf 'r%s.%s' "$(git rev-list --count HEAD)" "$(git log -1 --format=%cd --date=format:%Y%m%d)"
+}
+
+package() {
+	cd "$_pkgname"
+	install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+	install -Dm644 README.md "$pkgdir/usr/share/doc/$pkgname/README.md"
+
+	# Upstream is a Flask app run from its own directory, not a Python package
+	# with an entry point, so it goes to /usr/share and gets a launcher. The
+	# repo-root `config` file is a SAMPLE Reticulum config and is deliberately
+	# installed as documentation only -- writing it to ~/.reticulum/config would
+	# clobber a real one.
+	local dest="$pkgdir/usr/share/rbrowser"
+	install -d "$dest"
+	cp -r rBrowser.py rbrowser script settings templates "$dest/"
+	install -Dm644 config "$pkgdir/usr/share/doc/$pkgname/reticulum-config.sample"
+
+	install -d "$pkgdir/usr/bin"
+	cat > "$pkgdir/usr/bin/rbrowser" <<'EOF'
+#!/bin/sh
+# rBrowser writes runtime state to paths relative to the WORKING DIRECTORY --
+# settings/favorites.json (routes.py) and cache_settings.json (cache.py) -- so
+# it cannot simply be run from its root-owned install directory: every
+# favourite, cache and search-index write would fail with EACCES.
+#
+# So: keep the code in /usr/share/rbrowser and run from a per-user directory
+# that symlinks to it. The symlinks are refreshed every start so a package
+# upgrade takes effect, while settings/ is copied once and then left alone so
+# favourites survive upgrades.
+set -eu
+src=/usr/share/rbrowser
+dir=${XDG_DATA_HOME:-$HOME/.local/share}/rbrowser
+
+mkdir -p "$dir"
+for item in rBrowser.py rbrowser script templates; do
+	ln -sfn "$src/$item" "$dir/$item"
+done
+if [ ! -d "$dir/settings" ]; then
+	cp -r "$src/settings" "$dir/settings"
+	chmod -R u+w "$dir/settings"
+fi
+
+cd "$dir"
+exec python rBrowser.py "$@"
+EOF
+	chmod 755 "$pkgdir/usr/bin/rbrowser"
+}
