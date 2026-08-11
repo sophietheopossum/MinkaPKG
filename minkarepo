@@ -1,0 +1,116 @@
+#!/bin/sh
+# Build PKGBUILDs from this repo and publish them into the local pacman
+# repository, so pamac lists them exactly like [kotontrion] or [extra].
+#
+#   minkarepo publish <pkg>   build, then add to the repo  (the usual one)
+#   minkarepo build   <pkg>   makepkg only, leaves the package in its dir
+#   minkarepo add     <pkg>   add an already-built package to the repo
+#   minkarepo list            what the repo currently holds
+#   minkarepo remove  <name>  drop a package from the repo and delete its file
+#
+# <pkg> is a directory name in this repo, e.g. `lxmf-rs`. <name> in `remove`
+# is a pacman package NAME, which is not always the directory name.
+#
+# WHY A LOCAL REPO AND NOT AN AUR: pamac has aur.archlinux.org compiled into
+# libpamac with no config key to redirect it, so a private AUR-alike cannot be
+# made searchable. A pacman repository can, and it installs prebuilt rather
+# than compiling on demand.
+#
+# The repo directory is owned by your user on purpose -- that keeps everything
+# here sudo-free. Only editing /etc/pacman.conf and `pacman -Sy` need root.
+
+set -eu
+
+REPO=${MINKAREPO_DIR:-/srv/localrepo/x86_64}
+DB=${MINKAREPO_DB:-minka}
+self=$(cd "$(dirname "$0")" && pwd)
+
+die() { echo "minkarepo: $*" >&2; exit 1; }
+
+usage() {
+	sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//' >&2
+	exit 1
+}
+
+# Refuse early with the exact fix rather than letting repo-add fail obscurely.
+need_repo() {
+	[ -d "$REPO" ] || die "repo dir $REPO does not exist. Create it with:
+  sudo mkdir -p $REPO
+  sudo chown $(id -un):$(id -gn) $REPO"
+	[ -w "$REPO" ] || die "repo dir $REPO is not writable by $(id -un). Fix with:
+  sudo chown $(id -un):$(id -gn) $REPO"
+}
+
+need_pkgdir() {
+	[ -n "${1:-}" ] || usage
+	pkgdir=$self/$1
+	[ -d "$pkgdir" ] || die "no such package directory: $1"
+	[ -f "$pkgdir/PKGBUILD" ] || die "$1 has no PKGBUILD"
+}
+
+do_build() {
+	need_pkgdir "${1:-}"
+	echo "==> building $1"
+	# -s installs missing deps, -f overwrites a previous build of the same
+	# version so a rebuild after editing the PKGBUILD is not a manual cleanup.
+	( cd "$pkgdir" && makepkg -sf )
+}
+
+do_add() {
+	need_pkgdir "${1:-}"
+	need_repo
+	# Deliberately not `ls`-parsed: a glob keeps filenames with odd characters
+	# intact, and split PKGBUILDs legitimately produce several packages.
+	found=0
+	for p in "$pkgdir"/*.pkg.tar.zst; do
+		[ -f "$p" ] || continue
+		found=1
+		echo "==> publishing $(basename "$p")"
+		cp -f "$p" "$REPO/"
+	done
+	[ "$found" = 1 ] || die "$1 has no built package. Run: minkarepo build $1"
+
+	# -R deletes the superseded package file from the repo dir, so old
+	# versions do not accumulate silently.
+	repo-add -R "$REPO/$DB.db.tar.zst" "$REPO"/*.pkg.tar.zst
+	echo
+	echo "Added to $REPO. To see it in pamac:"
+	echo "  sudo pacman -Sy"
+}
+
+do_list() {
+	need_repo
+	[ -f "$REPO/$DB.db.tar.zst" ] || die "no database at $REPO/$DB.db.tar.zst yet"
+	for p in "$REPO"/*.pkg.tar.zst; do
+		[ -f "$p" ] || { echo "(repo is empty)"; return; }
+		printf '  %-46s %s\n' "$(basename "$p")" "$(du -h "$p" | cut -f1)"
+	done
+}
+
+do_remove() {
+	[ -n "${1:-}" ] || usage
+	need_repo
+	repo-remove "$REPO/$DB.db.tar.zst" "$1"
+	# Single quotes below, not backticks: backticks inside a double-quoted
+	# string are command substitution, and this one would have RUN pacman.
+	for p in "$REPO/$1"-*.pkg.tar.zst; do
+		if [ -f "$p" ]; then
+			echo "removing $(basename "$p")"
+			rm -f "$p"
+		fi
+	done
+	echo 'Run `sudo pacman -Sy` to refresh.'
+}
+
+cmd=${1:-}
+# `[ ... ] && shift` would return non-zero when no args were given, and under
+# `set -e` that exits before the usage message is ever printed.
+[ $# -gt 0 ] && shift || true
+case $cmd in
+	build)   do_build "${1:-}" ;;
+	add)     do_add "${1:-}" ;;
+	publish) do_build "${1:-}"; do_add "${1:-}" ;;
+	list)    do_list ;;
+	remove)  do_remove "${1:-}" ;;
+	*)       usage ;;
+esac

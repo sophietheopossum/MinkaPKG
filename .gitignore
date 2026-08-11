@@ -1,0 +1,12 @@
+# makepkg build artefacts — one src/ and pkg/ per package directory
+*/src/
+*/pkg/
+
+# Built packages and downloaded sources. Local patches and .desktop files are
+# deliberately NOT ignored: those are inputs and belong in the repo.
+*.pkg.tar.zst
+*.pkg.tar.zst.sig
+*.tar.gz
+*.tar.xz
+*.tar.bz2
+*.zip
