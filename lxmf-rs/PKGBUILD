@@ -1,0 +1,70 @@
+# Maintainer: Sophie <goldsnakeking@gmail.com>
+
+pkgname=lxmf-rs
+pkgver=0.9.8
+pkgrel=1
+pkgdesc="Reticulum network stack and LXMF messaging implemented in Rust"
+arch=('x86_64')
+url="https://github.com/FreeTAKTeam/LXMF-rs"
+license=('EPL-2.0')
+depends=('gcc-libs' 'glibc')
+makedepends=('cargo')
+# Deliberately NOT conflicting with python-rns -- see package() for how the
+# overlapping tool names are kept apart. Running both stacks at once is the
+# most useful way to test this one, since Rust<->Python interop is what
+# upstream exercises in CI.
+source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
+sha256sums=('4707a6b35b8f753f8f46f149532ff6a106ea478ac8ceab870dcde5de2f1bf2e6')
+
+_srcdir="LXMF-rs-$pkgver"
+
+prepare() {
+	cd "$_srcdir"
+	export RUSTUP_TOOLCHAIN=stable
+	cargo fetch --locked --target "$(rustc -vV | sed -n 's/host: //p')"
+}
+
+build() {
+	cd "$_srcdir"
+	export RUSTUP_TOOLCHAIN=stable
+	export CARGO_TARGET_DIR=target
+	# Only the three app crates; the workspace also holds embedded and
+	# test-support crates that are not wanted in a host package.
+	cargo build --frozen --release -p reticulumd -p lxmf-cli -p rns-tools
+}
+
+# No check(): the workspace test suite includes hardware-in-the-loop and
+# public-network scenarios that cannot pass in a build chroot. Run
+# `cargo test --frozen -p reticulum-rs-core` by hand if you want the unit
+# tests without the HIL gates.
+
+package() {
+	cd "$_srcdir"
+	install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+	install -Dm644 README.md "$pkgdir/usr/share/doc/$pkgname/README.md"
+
+	# These four names collide with nothing in the Python packages, so they
+	# go straight onto PATH.
+	local b
+	for b in reticulumd lxm-interchange lxmf lxmf-cli; do
+		install -Dm755 "target/release/$b" "$pkgdir/usr/bin/$b"
+	done
+
+	# rns-tools ships rnsd, rnstatus, rnpath, rnprobe, rnid, rncp, rnx and
+	# rnodeconf -- byte-for-byte the same filenames python-rns installs into
+	# /usr/bin. Renaming them here would mean inventing names for tools whose
+	# Python-compat semantics I have not verified (upstream ships BOTH
+	# rnstatus and rnstatus-rs, and they are not obviously the same thing).
+	# So install the whole set unrenamed into a private directory instead:
+	# no file conflict, no guessed names, and python-rns keeps working.
+	# Put it on PATH yourself if you want it there:
+	#   fish_add_path -g /usr/lib/lxmf-rs/bin
+	for b in target/release/*; do
+		[ -f "$b" ] && [ -x "$b" ] || continue
+		case "${b##*/}" in
+			*.d|*.so|*.rlib|build|deps|examples|incremental) continue ;;
+			reticulumd|lxm-interchange|lxmf|lxmf-cli) continue ;;
+		esac
+		install -Dm755 "$b" "$pkgdir/usr/lib/lxmf-rs/bin/${b##*/}"
+	done
+}
