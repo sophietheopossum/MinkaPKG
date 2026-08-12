@@ -12,9 +12,12 @@
 # The floor is real and hard, not a warning: pnpm 11.3.0 (pinned by
 # packageManager + package-manager-strict=true) dies on Node 20 with
 # ERR_UNKNOWN_BUILTIN_MODULE, so `makedepends` cannot be relaxed to nodejs>=20.
-# Verified working on 22.23.2 (= nodejs-lts-jod, and what upstream CI pins) and
-# on 24.18.1 (= nodejs-lts-krypton). Any of those providers satisfies it;
-# nodejs-lts-iron does not and conflicts with all of them.
+# Verified working on 22.23.2 (= nodejs-lts-jod, and what upstream CI pins),
+# 24.18.1 (= nodejs-lts-krypton) and 26.7.0 (= nodejs). Any of those providers
+# satisfies it; nodejs-lts-iron does not and conflicts with all of them.
+# The choice does not affect the package: 24 and 26 emit a byte-identical
+# frontend/dist (same tree hash, same content-hashed chunk names), so it is
+# purely a host-toolchain preference.
 # ---------------------------------------------------------------------------
 #
 # NETWORK: build() runs `pnpm install`, which hits the npm registry. That is

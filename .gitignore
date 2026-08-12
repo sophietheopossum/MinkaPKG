@@ -10,3 +10,8 @@
 *.tar.xz
 *.tar.bz2
 *.zip
+# Loose (non-archive) source= downloads, e.g. renbrowser's pinned micron wasm
+# and its wasm_exec shim. Both are fetched by makepkg and verified by
+# sha256sums; a 4 MB wasm blob does not belong in git.
+*.wasm
+wasm_exec-*.js
