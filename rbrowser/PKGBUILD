@@ -1,36 +1,47 @@
 # Maintainer: Sophie <goldsnakeking@gmail.com>
 
-# A -git package because upstream publishes NO tags or releases -- the only
-# reference is a moving `main`. Note that main has not moved since 2025-12-16,
-# so despite the -git suffix this is effectively a snapshot of an eight-month-old
-# tree. GitHub's `updated_at` field says 2026-08-10, but that bumps on stars and
-# forks; `pushed_at` is the one that tracks code.
+# Date-versioned snapshot of rBrowser. Upstream publishes NO tags and NO
+# releases -- `git tag` is empty and always has been -- so there is no upstream
+# version string to adopt. pkgver is therefore the UPSTREAM COMMIT DATE of the
+# pinned commit, not the day it was packaged: the code below is from
+# 2025-12-16, and calling it 20260812 would imply a freshness it does not have.
 #
-# It declares `rns>=1.0.0` unpinned while the AUR ships python-rns 1.4.2, so
-# API drift is the likely failure mode. If it breaks, that is where to look.
+# This replaces the earlier rbrowser-git. A -git package was the wrong shape
+# here: it implies a moving target, but main has not advanced since 2025-12-16,
+# so every "fresh" build produced identical code under a version that silently
+# changed. Pinning the commit makes the build reproducible and makes the age
+# visible in the version. GitHub's `updated_at` field claims 2026-08-10, but
+# that bumps on stars and forks; `pushed_at` is the one that tracks code.
+#
+# To bump: set _commit to the new sha, set pkgver to that commit's date, and
+# run `updpkgsums`.
+#
+# It declares `rns>=1.0.0` unpinned while Arch ships python-rns 1.4.2, so API
+# drift is the likely failure mode. If it breaks, that is where to look.
 
-pkgname=rbrowser-git
-_pkgname=rBrowser
-pkgver=r0.20251216
+pkgname=rbrowser
+pkgver=20251216
 pkgrel=1
+_commit=b34bcda6e2729ca3ad69001e22825c53399a0b86
 pkgdesc="Standalone web UI browser for NomadNet nodes and pages over Reticulum"
 arch=('any')
 url="https://github.com/fr33n0w/rBrowser"
 license=('MIT')
+# Confirmed against requirements.txt (rns>=1.0.0, flask>=2.0.0, waitress>=2.1.2)
+# AND against the actual imports across every .py file -- flask, RNS, waitress
+# are the only third-party modules referenced.
 depends=('python' 'python-rns' 'python-flask' 'python-waitress')
-makedepends=('git')
-provides=('rbrowser')
-conflicts=('rbrowser')
-source=("git+$url.git")
-sha256sums=('SKIP')
+replaces=('rbrowser-git')
+conflicts=('rbrowser-git')
+# A commit tarball rather than git+, so the build needs no git makedepend and
+# the sha256 pins the exact bytes.
+source=("$pkgname-$pkgver.tar.gz::$url/archive/$_commit.tar.gz")
+sha256sums=('ce3da541b78aef3cdb44e3aa68d2a8a652ced2451b2864f1c02f8590557ef362')
 
-pkgver() {
-	cd "$_pkgname"
-	printf 'r%s.%s' "$(git rev-list --count HEAD)" "$(git log -1 --format=%cd --date=format:%Y%m%d)"
-}
+_srcdir="rBrowser-$_commit"
 
 package() {
-	cd "$_pkgname"
+	cd "$_srcdir"
 	install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
 	install -Dm644 README.md "$pkgdir/usr/share/doc/$pkgname/README.md"
 
