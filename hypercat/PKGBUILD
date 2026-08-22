@@ -13,18 +13,27 @@
 # message that added the tree says the same. The commit is only where the bytes
 # live.
 #
+# SOURCES COME FROM SOPHIE'S FORK, not upstream. _commit 99250f9 carries the
+# hc_memory embedding-model binding (143cc56), which is not upstream yet: without
+# it, meta.json records only {"dim":N}, so swapping to a DIFFERENT embedding model
+# of the SAME dimension passes every check and silently poisons recall. `url` stays
+# the upstream project because that is whose software this is -- only the fetch
+# points at the fork. (GitHub serves /archive/<sha>.tar.gz across a fork network,
+# so either host resolves; naming the fork is about being honest, not reachability.)
+#
 # To bump: set _commit, re-check that source/CMakeLists.txt's project() VERSION
 # still matches pkgver, and run `updpkgsums`.
 
 pkgname=hypercat
 pkgver=0.1.2
-pkgrel=2
-_commit=5ec176acd5e7b332209fc97acf76dd18c727596e
+pkgrel=3
+_commit=99250f9eb3bcf0f3dc4723f1df6712dc268911a0
 # Pinned by upstream at app/ui/CMakeLists.txt; see the FetchContent note below.
 _imguitag=v1.92.8-docking
 pkgdesc="Personality-driven multi-agent workspace application"
 arch=('x86_64')
 url="https://github.com/savannah-i-g/HyperCat-Agent"
+_fork="https://github.com/sophietheopossum/HyperCat-Agent"
 license=('Apache-2.0')
 
 # Derived from the build system AND confirmed against `objdump -p` NEEDED
@@ -64,14 +73,22 @@ makedepends=('cmake' 'pkgconf')
 # the pinned tarball is a normal source entry and FETCHCONTENT_SOURCE_DIR_IMGUI
 # points CMake at it. The tag matches upstream's GIT_TAG exactly; bump both
 # together.
-source=("$pkgname-$pkgver.tar.gz::$url/archive/$_commit.tar.gz"
+source=("$pkgname-$pkgver.tar.gz::$_fork/archive/$_commit.tar.gz"
         "imgui-$_imguitag.tar.gz::https://github.com/ocornut/imgui/archive/refs/tags/$_imguitag.tar.gz")
-sha256sums=('1905b81b555ca77e74b22578bf2280bc865edf580ac30c41bf39f136e16770de'
+sha256sums=('9708964a827b8d3b7e6f1ac30054100d6aa69a2066b7bddba7a711f982754b06'
             'ca0653454ed371b7a87e9b0bc29a5d15c9be7f7c0fbe778042fc48c71df1d3d8')
 
 _srcdir="HyperCat-Agent-$_commit"
 
 build() {
+	# Drop any build tree left by a previous run. makepkg -f clears $pkgdir but NOT
+	# $srcdir, so build/ survives with a CMakeCache.txt naming the OLD commit's
+	# source path -- and CMake then refuses outright:
+	#   "The source ... does not match the source ... used to generate cache"
+	# That fires on every _commit bump, which is exactly when a rebuild matters, so
+	# it is cleared here rather than relying on the caller remembering makepkg -C.
+	rm -rf build
+
 	# The CMake root is source/, not the repo root.
 	#
 	# CMAKE_BUILD_TYPE is set explicitly and deliberately: source/CMakeLists.txt
