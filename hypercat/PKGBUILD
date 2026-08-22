@@ -18,7 +18,7 @@
 
 pkgname=hypercat
 pkgver=0.1.2
-pkgrel=1
+pkgrel=2
 _commit=5ec176acd5e7b332209fc97acf76dd18c727596e
 # Pinned by upstream at app/ui/CMakeLists.txt; see the FetchContent note below.
 _imguitag=v1.92.8-docking
@@ -27,9 +27,9 @@ arch=('x86_64')
 url="https://github.com/savannah-i-g/HyperCat-Agent"
 license=('Apache-2.0')
 
-# Derived from the build system, NOT from ldd -- this has not been built yet
-# (see the note in build() about why not right now). Every entry below is a
-# find_package/pkg_check_modules call in the tree, and every Arch package name
+# Derived from the build system AND confirmed against `objdump -p` NEEDED
+# entries on the built binaries (see the ldd-pass note below). Every entry here
+# is a find_package/pkg_check_modules call in the tree, and every Arch package
 # was checked against the official repos rather than assumed:
 #
 #   glfw3     pkg_check_modules(... REQUIRED)  app/ui        -> glfw
@@ -53,11 +53,8 @@ license=('Apache-2.0')
 #     the provider key simply does not survive a restart, and the app reports
 #     "no keychain reachable". Configure-time it is only a message(STATUS), so
 #     the degradation is silent. Hence a hard depend.
-#
-# Worth an `ldd` pass over the built binaries on the first successful build, the
-# way lxmf-rs got one -- a transitively-linked soname that nobody calls
-# find_package() for would not show up in the list above.
-depends=('glibc' 'gcc-libs' 'glfw' 'libglvnd' 'curl' 'cjson' 'openal' 'libsecret')
+depends=('glibc' 'libgcc' 'libstdc++' 'glfw' 'libglvnd' 'curl' 'cjson' 'openal'
+         'libsecret' 'glib2')
 makedepends=('cmake' 'pkgconf')
 
 # Dear ImGui is fetched here rather than left to CMake. Unlike cJSON and
@@ -75,11 +72,6 @@ sha256sums=('1905b81b555ca77e74b22578bf2280bc865edf580ac30c41bf39f136e16770de'
 _srcdir="HyperCat-Agent-$_commit"
 
 build() {
-	# NOTE: not yet built on this machine. The box is currently memory-bound
-	# (a ~6 GB rust-analyzer on 15 GB of RAM, thrashing zram), and a parallel
-	# C++ build of ~50 static libs is the last thing it needs. Build this when
-	# the machine is quiet, then run the ldd pass mentioned above.
-
 	# The CMake root is source/, not the repo root.
 	#
 	# CMAKE_BUILD_TYPE is set explicitly and deliberately: source/CMakeLists.txt
