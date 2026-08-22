@@ -31,16 +31,12 @@
 
 pkgname=renbrowser
 pkgver=0.2.1
-pkgrel=1
+pkgrel=2
 pkgdesc='Reticulum browser for NomadNet pages'
 arch=('x86_64')
 url='https://github.com/Quad4-Software/Ren-Browser'
 license=('MIT')
-# gtk4 already pulls cairo, pango, gdk-pixbuf2, graphene, harfbuzz, libx11 and
-# vulkan-icd-loader, all of which appear as direct NEEDED entries. libsoup3 is
-# NOT among them, so it is declared explicitly rather than leaned on via
-# webkitgtk-6.0. Read off `objdump -p` of the built binary, not guessed.
-depends=('gtk4' 'webkitgtk-6.0' 'libsoup3' 'hicolor-icon-theme')
+depends=('glibc' 'gtk4' 'webkitgtk-6.0' 'libsoup3' 'hicolor-icon-theme')
 makedepends=('go>=1.26.5' 'nodejs>=22.13' 'pnpm' 'pkgconf')
 options=('!lto')
 
