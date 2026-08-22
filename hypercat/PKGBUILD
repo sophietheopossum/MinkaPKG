@@ -13,21 +13,15 @@
 # message that added the tree says the same. The commit is only where the bytes
 # live.
 #
-# SOURCES COME FROM SOPHIE'S FORK, not upstream. _commit 99250f9 carries the
-# hc_memory embedding-model binding (143cc56), which is not upstream yet: without
-# it, meta.json records only {"dim":N}, so swapping to a DIFFERENT embedding model
-# of the SAME dimension passes every check and silently poisons recall. `url` stays
-# the upstream project because that is whose software this is -- only the fetch
-# points at the fork. (GitHub serves /archive/<sha>.tar.gz across a fork network,
-# so either host resolves; naming the fork is about being honest, not reachability.)
+# SOURCES COME FROM SOPHIE'S FORK, not upstream.
 #
 # To bump: set _commit, re-check that source/CMakeLists.txt's project() VERSION
 # still matches pkgver, and run `updpkgsums`.
 
 pkgname=hypercat
 pkgver=0.1.2
-pkgrel=3
-_commit=99250f9eb3bcf0f3dc4723f1df6712dc268911a0
+pkgrel=4
+_commit=356c1231ba618aa1ab5e0fc7aa61d44b90a07e86
 # Pinned by upstream at app/ui/CMakeLists.txt; see the FetchContent note below.
 _imguitag=v1.92.8-docking
 pkgdesc="Personality-driven multi-agent workspace application"
@@ -75,7 +69,7 @@ makedepends=('cmake' 'pkgconf')
 # together.
 source=("$pkgname-$pkgver.tar.gz::$_fork/archive/$_commit.tar.gz"
         "imgui-$_imguitag.tar.gz::https://github.com/ocornut/imgui/archive/refs/tags/$_imguitag.tar.gz")
-sha256sums=('9708964a827b8d3b7e6f1ac30054100d6aa69a2066b7bddba7a711f982754b06'
+sha256sums=('07c047eba70e06479b18584fbfda9d5b8f2007a8b2f1bdb1bfb1da92efa88f9c'
             'ca0653454ed371b7a87e9b0bc29a5d15c9be7f7c0fbe778042fc48c71df1d3d8')
 
 _srcdir="HyperCat-Agent-$_commit"
