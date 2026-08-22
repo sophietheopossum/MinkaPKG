@@ -44,10 +44,15 @@ license=('Apache-2.0')
 #     Declaring them as hard depends is what keeps that path unreachable and the
 #     build offline -- they are not optional here even though upstream treats
 #     them as such.
-# [2] Optional upstream (HC_WITH_KEYCHAIN defaults ON, degrades if missing), but
-#     without it the OS-keychain secret store is silently compiled out and
-#     secrets fall back to on-disk storage. That is a behaviour change, not a
-#     missing nicety, so it is a hard depend.
+# [2] Optional upstream (HC_WITH_KEYCHAIN defaults ON) and probed find-or-skip,
+#     with no REQUIRED -- so a missing libsecret degrades the build instead of
+#     failing it. What is lost is PERSISTENCE, not storage location: the real
+#     arms in hc_secrets.c are walled behind HC_WITH_KEYCHAIN_BACKEND, and
+#     without it the four persistence verbs compile as UNSUPPORTED stubs over a
+#     process-memory-only store. Nothing is written to disk in either build --
+#     the provider key simply does not survive a restart, and the app reports
+#     "no keychain reachable". Configure-time it is only a message(STATUS), so
+#     the degradation is silent. Hence a hard depend.
 #
 # Worth an `ldd` pass over the built binaries on the first successful build, the
 # way lxmf-rs got one -- a transitively-linked soname that nobody calls
