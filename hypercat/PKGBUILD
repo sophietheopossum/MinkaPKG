@@ -1,0 +1,170 @@
+# Maintainer: Sophie <goldsnakeking@gmail.com>
+
+# HyperCat is COMMIT-PINNED, and the reason matters: its tags are a trap.
+#
+# Upstream has two tags, v0.1.0 and v0.1.2, and BOTH predate the source drop.
+# `v0.1.2` contains exactly README.md and resources/ -- no source tree at all.
+# The code arrived three commits later in 6c011cfe4 ("Add HyperCat v0.1.2 source
+# tree (Apache-2.0)"), so a PKGBUILD that did the obvious thing and pulled
+# refs/tags/v0.1.2 would fetch, checksum and package nothing. Hence the commit.
+#
+# pkgver is still 0.1.2 because that is what the software calls itself --
+# `project(HyperCat VERSION 0.1.2)` in source/CMakeLists.txt, and the commit
+# message that added the tree says the same. The commit is only where the bytes
+# live.
+#
+# To bump: set _commit, re-check that source/CMakeLists.txt's project() VERSION
+# still matches pkgver, and run `updpkgsums`.
+
+pkgname=hypercat
+pkgver=0.1.2
+pkgrel=1
+_commit=5ec176acd5e7b332209fc97acf76dd18c727596e
+# Pinned by upstream at app/ui/CMakeLists.txt; see the FetchContent note below.
+_imguitag=v1.92.8-docking
+pkgdesc="Personality-driven multi-agent workspace application"
+arch=('x86_64')
+url="https://github.com/savannah-i-g/HyperCat-Agent"
+license=('Apache-2.0')
+
+# Derived from the build system, NOT from ldd -- this has not been built yet
+# (see the note in build() about why not right now). Every entry below is a
+# find_package/pkg_check_modules call in the tree, and every Arch package name
+# was checked against the official repos rather than assumed:
+#
+#   glfw3     pkg_check_modules(... REQUIRED)  app/ui        -> glfw
+#   OpenGL    find_package(... REQUIRED)       app/ui        -> libglvnd
+#   libcurl   pkg_check_modules(... REQUIRED)  libs/hc_http  -> curl
+#   libcjson  pkg_check_modules (no REQUIRED)  libs/hc_json  -> cjson    [1]
+#   OpenAL    find_package (no REQUIRED)       libs/hc_audio -> openal   [1]
+#   libsecret pkg_check_modules (no REQUIRED)  libs/hc_secrets -> libsecret [2]
+#
+# [1] These two are FIND-OR-FETCH: if the system library is absent, upstream
+#     silently falls back to a pinned FetchContent and downloads it mid-build.
+#     Declaring them as hard depends is what keeps that path unreachable and the
+#     build offline -- they are not optional here even though upstream treats
+#     them as such.
+# [2] Optional upstream (HC_WITH_KEYCHAIN defaults ON, degrades if missing), but
+#     without it the OS-keychain secret store is silently compiled out and
+#     secrets fall back to on-disk storage. That is a behaviour change, not a
+#     missing nicety, so it is a hard depend.
+#
+# Worth an `ldd` pass over the built binaries on the first successful build, the
+# way lxmf-rs got one -- a transitively-linked soname that nobody calls
+# find_package() for would not show up in the list above.
+depends=('glibc' 'gcc-libs' 'glfw' 'libglvnd' 'curl' 'cjson' 'openal' 'libsecret')
+makedepends=('cmake' 'pkgconf')
+
+# Dear ImGui is fetched here rather than left to CMake. Unlike cJSON and
+# openal-soft above, upstream's ImGui FetchContent is UNCONDITIONAL -- there is
+# no system-library probe in front of it (app/ui/CMakeLists.txt), so configuring
+# the UI target always reaches out to github. makepkg should never do that, so
+# the pinned tarball is a normal source entry and FETCHCONTENT_SOURCE_DIR_IMGUI
+# points CMake at it. The tag matches upstream's GIT_TAG exactly; bump both
+# together.
+source=("$pkgname-$pkgver.tar.gz::$url/archive/$_commit.tar.gz"
+        "imgui-$_imguitag.tar.gz::https://github.com/ocornut/imgui/archive/refs/tags/$_imguitag.tar.gz")
+sha256sums=('1905b81b555ca77e74b22578bf2280bc865edf580ac30c41bf39f136e16770de'
+            'ca0653454ed371b7a87e9b0bc29a5d15c9be7f7c0fbe778042fc48c71df1d3d8')
+
+_srcdir="HyperCat-Agent-$_commit"
+
+build() {
+	# NOTE: not yet built on this machine. The box is currently memory-bound
+	# (a ~6 GB rust-analyzer on 15 GB of RAM, thrashing zram), and a parallel
+	# C++ build of ~50 static libs is the last thing it needs. Build this when
+	# the machine is quiet, then run the ldd pass mentioned above.
+
+	# The CMake root is source/, not the repo root.
+	#
+	# CMAKE_BUILD_TYPE is set explicitly and deliberately: source/CMakeLists.txt
+	# forces Debug when no type is given, and HC_SANITIZERS defaults ON, so an
+	# unqualified build silently produces an ASan/UBSan binary.
+	#
+	# HC_BUILD_TESTS=OFF drops ~80 test executables. Some of them (live_validate,
+	# live_persona_check) are live-network tests that want an OpenRouter key, so
+	# the suite cannot run in a chroot anyway; see the absent check() below.
+	#
+	# HC_ENABLE_TEST_GATES is left at its OFF default. Upstream's own description
+	# is "NEVER in a release build" -- it compiles in bypasses for the capability
+	# and supervisor gates. Do not turn this on to make something pass.
+	#
+	# HC_WITH_LLAMA is left OFF (its default): ON pulls in an embedded llama.cpp
+	# inference backend, which is a much larger package with its own deps.
+	#
+	# CMAKE_RUNTIME_OUTPUT_DIRECTORY is set because upstream ships no install()
+	# rules at all, so package() has to lift binaries out of the build tree by
+	# hand. Without this they scatter across build/app, build/agentd,
+	# build/audio_helper, build/tool_launch, build/app/replay and build/tools.
+	# One directory makes the install loop below honest instead of a list of
+	# paths that quietly rots when upstream moves a target.
+	cmake -S "$_srcdir/source" -B build \
+		-DCMAKE_BUILD_TYPE=Release \
+		-DCMAKE_INSTALL_PREFIX=/usr \
+		-DCMAKE_RUNTIME_OUTPUT_DIRECTORY="$srcdir/build/bin" \
+		-DHC_BUILD_TESTS=OFF \
+		-DHC_WITH_LLAMA=OFF \
+		-DHC_WITH_KEYCHAIN=ON \
+		-DFETCHCONTENT_SOURCE_DIR_IMGUI="$srcdir/imgui-${_imguitag#v}" \
+		-DFETCHCONTENT_FULLY_DISCONNECTED=ON
+
+	cmake --build build
+}
+
+# No check(): HC_BUILD_TESTS is off above, and turning it on does not give a
+# runnable suite here -- the live_* targets talk to OpenRouter and the UI tests
+# want a GL context. To exercise the offline subset by hand, configure a second
+# build tree with -DHC_BUILD_TESTS=ON and run ctest -E 'live|ui_'.
+
+package() {
+	cd "$_srcdir"
+
+	install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+	install -Dm644 README.md "$pkgdir/usr/share/doc/$pkgname/README.md"
+	install -Dm644 source/packaging/MANUAL.md "$pkgdir/usr/share/doc/$pkgname/MANUAL.md"
+	install -Dm644 source/packaging/THIRD_PARTY.txt "$pkgdir/usr/share/doc/$pkgname/THIRD_PARTY.txt"
+	install -Dm644 source/packaging/DISCLAIMER.txt "$pkgdir/usr/share/doc/$pkgname/DISCLAIMER.txt"
+
+	# Everything goes in one private directory because hypercat locates its
+	# helpers as SIBLINGS: app/exe_path.cpp readlink()s /proc/self/exe and looks
+	# for agentd, hc_audio_helper and hc_tool_launch next to itself, falling back
+	# to a compile-time path only if that misses. Splitting the four across
+	# /usr/bin and /usr/lib would break that lookup.
+	#
+	# The /usr/bin entries are symlinks rather than wrapper scripts, which is
+	# safe for exactly the same reason: readlink("/proc/self/exe") reports the
+	# resolved target, so a process started via /usr/bin/hypercat still sees
+	# /usr/lib/hypercat as its own directory and finds its siblings there.
+	local b
+	for b in "$srcdir"/build/bin/*; do
+		[ -f "$b" ] && [ -x "$b" ] || continue
+		install -Dm755 "$b" "$pkgdir/usr/lib/$pkgname/${b##*/}"
+	done
+
+	# hypercat is the application; hc-replay is a separate user-facing CLI for
+	# replaying recorded sessions. The rest (agentd, hc_audio_helper,
+	# hc_tool_launch, and the genlock/png2qoi/qoi_pack asset tools) are helpers
+	# that are either spawned by the above or only useful from the source tree,
+	# so they stay off PATH.
+	install -d "$pkgdir/usr/bin"
+	ln -s "/usr/lib/$pkgname/hypercat" "$pkgdir/usr/bin/hypercat"
+	ln -s "/usr/lib/$pkgname/hc-replay" "$pkgdir/usr/bin/hc-replay"
+
+	install -Dm644 resources/hypercat.png \
+		"$pkgdir/usr/share/icons/hicolor/128x128/apps/hypercat.png"
+
+	# Upstream's install.sh writes a .desktop file but only as part of its
+	# /opt bundle installer, which is not usable from a PKGBUILD, so it is
+	# reproduced here. Terminal=false: it is a GLFW/OpenGL window, not a TUI.
+	install -Dm644 /dev/stdin "$pkgdir/usr/share/applications/hypercat.desktop" <<-EOF
+		[Desktop Entry]
+		Type=Application
+		Name=HyperCat
+		Comment=$pkgdesc
+		Exec=hypercat
+		Icon=hypercat
+		Terminal=false
+		Categories=Development;Utility;
+		Keywords=agent;ai;assistant;
+	EOF
+}
