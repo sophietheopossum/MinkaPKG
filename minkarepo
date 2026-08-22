@@ -25,12 +25,19 @@ set -eu
 
 REPO=${MINKAREPO_DIR:-/srv/localrepo/x86_64}
 DB=${MINKAREPO_DB:-minka}
-self=$(cd "$(dirname "$0")" && pwd)
+# Resolved through any symlink, so this works when linked onto PATH:
+#   ln -s ~/Documents/src/MinkaDE/MinkaPKG/minkarepo ~/.local/bin/minkarepo
+# Package directories are found relative to the REAL script location, never the
+# caller's working directory, so `minkarepo publish hypercat` works from
+# anywhere. Without the readlink, $0 would be the link and every package lookup
+# would search ~/.local/bin instead.
+prog=$(readlink -f "$0")
+self=$(cd "$(dirname "$prog")" && pwd)
 
 die() { echo "minkarepo: $*" >&2; exit 1; }
 
 usage() {
-	sed -n '2,14p' "$0" | sed 's/^# \{0,1\}//' >&2
+	sed -n '2,14p' "$prog" | sed 's/^# \{0,1\}//' >&2
 	exit 1
 }
 
