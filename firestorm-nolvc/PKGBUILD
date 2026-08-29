@@ -1,5 +1,10 @@
 # Maintainer: Wolfspirit Magic <wolfspirit at wolfspirit dot eu>
-pkgname=firestorm
+# Renamed from `firestorm` deliberately. Keeping the AUR's name meant an identical
+# pkgver-pkgrel, so `paru -Sua` would silently rebuild from the AUR on its next pkgrel
+# bump and pull vlc straight back in -- the one thing this package exists to prevent.
+# _realname is the upstream source directory and must stay `firestorm`.
+pkgname=firestorm-nolvc
+_realname=firestorm
 pkgver=7.2.4.80712
 _src=Firestorm_Release_$pkgver
 _extension=os
@@ -34,10 +39,10 @@ optdepends=(
   'nvidia-utils: for NVIDIA support'
 )
 makedepends=('cmake' 'python-pip' 'git' 'boost' 'xz')
-conflicts=()
-provides=('firestorm-os')
+conflicts=('firestorm')
+provides=('firestorm' 'firestorm-os')
 source=(
-  "$pkgname"::"git+https://github.com/FirestormViewer/phoenix-firestorm#tag=${_src}"
+  "$_realname"::"git+https://github.com/FirestormViewer/phoenix-firestorm#tag=${_src}"
   "fs-build-variables"::'git+https://github.com/FirestormViewer/fs-build-variables'
   'firestorm.desktop'
   'firestorm.launcher'
@@ -71,7 +76,7 @@ sha256sums=('220060b5da6f3096bbb479efe40597148a5eee818dc0747dd32eba8f66e1ced8'
 options=(!strip)
 
 prepare() {
-  cd "$srcdir/$pkgname"
+  cd "$srcdir/$_realname"
 
   for p in "$srcdir"/*.patch; do
 
@@ -92,7 +97,7 @@ build() {
   export CPPFLAGS CXXFLAGS
 
 
-  cd "$pkgname"
+  cd "$_realname"
   export AUTOBUILD_VARIABLES_FILE="$srcdir/fs-build-variables/variables"
   
   # Install Autobuild + python deps into an isolated venv
@@ -142,7 +147,7 @@ package() {
   mkdir -p "$pkgdir/usr/share/icons/hicolor/512x512/apps"
 
   # Install the packaged output to /opt/firestorm-$_extension
-  cp -a --reflink=auto "$pkgname/build-linux-x86_64/newview/packaged" "$pkgdir/opt/firestorm-$_extension"
+  cp -a --reflink=auto "$_realname/build-linux-x86_64/newview/packaged" "$pkgdir/opt/firestorm-$_extension"
 
   install -Dm755 "firestorm.launcher" "$pkgdir/usr/bin/firestorm-$_extension"
   install -Dm644 "firestorm.desktop" "$pkgdir/usr/share/applications/firestorm-$_extension.desktop"
