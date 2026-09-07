@@ -13,6 +13,9 @@
 : ${_build_pgo_xvfb:=true} # use xfvb for profiling, otherwise xwayland-run
 
 : ${_build_lto:=false}        # link-time optimization; may cause spurious errors
+: ${_build_lto_mode:=thin}   # thin|full. FULL does not fit 15 GiB alongside a desktop: the
+                             # 7/9/2026 attempt peaked 9.3 GiB resident + 9.6 GiB swap and
+                             # took the session down with it. Thin is still LTO.
 : ${_build_system_libs:=true} # use system libraries, reduces build time
 
 : ${_build_limit_cores:=auto} # number of cores for parallelism; or auto, limited by RAM
@@ -165,6 +168,14 @@ ac_add_options --disable-elf-hack
 ac_add_options --disable-bootstrap
 ac_add_options --with-wasi-sysroot=/usr/share/wasi-sysroot
 
+# Compiler cache. mozbuild distinguishes ccache / sccache / buildcache and adapts
+# (see build/moz.configure/toolchain.configure); buildcache identifies itself via
+# `--version`, which is how mozbuild picks the buildcache path. Configured in
+# ~/.buildcache/config.json for direct mode + ZSTD. This matters more than it looks:
+# makepkg re-extracts \$srcdir on every run, so without a cache each retry of this
+# build starts from nothing.
+ac_add_options --with-ccache=buildcache
+
 # Branding
 ac_add_options --with-app-basename=${_pkgname^}
 ac_add_options --with-app-name=$_pkgname
@@ -246,7 +257,7 @@ END
 
   if [[ "${_build_lto::1}" == "t" ]]; then
     cat >> mozconfig << END
-ac_add_options --enable-lto=cross,full
+ac_add_options --enable-lto=cross,${_build_lto_mode}
 END
   fi
 
