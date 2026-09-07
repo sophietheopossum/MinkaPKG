@@ -281,7 +281,11 @@ END
   printf '\n:: Free RAM: %-5s Cores: %-5s Threads: %-5s Jobs: %-5s\n\n' "$((_mem / (1024 * 1024)))" "$_cores" "$_threads" "$_jobs"
 
   if [[ "$_jobs" =~ ^[0-9]+$ ]]; then
-    cat >> ../mozconfig << END
+    # NOT ../mozconfig. prepare() runs with cwd=$srcdir, so "../" writes to
+    # $startdir/mozconfig, which nothing ever reads; build() reads $srcdir/mozconfig.
+    # Because of this, _build_limit_cores NEVER applied and every build ran at mach's
+    # default parallelism instead — the cause of two OOM failures on 7/9/2026.
+    cat >> mozconfig << END
 mk_add_options MOZ_PARALLEL_BUILD=${_jobs}
 END
   fi
