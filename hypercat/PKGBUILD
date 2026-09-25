@@ -20,8 +20,8 @@
 
 pkgname=hypercat
 pkgver=0.1.2
-pkgrel=8
-_commit=0da82d1e6868902f6b8dc106e0cc34fbbb9ead27
+pkgrel=9
+_commit=5a15f4054c76ebecb7139f7d0b40041b4c6488f9
 # Pinned by upstream at app/ui/CMakeLists.txt; see the FetchContent note below.
 _imguitag=v1.92.8-docking
 pkgdesc="Personality-driven multi-agent workspace application"
@@ -69,7 +69,7 @@ makedepends=('cmake' 'pkgconf')
 # together.
 source=("$pkgname-$pkgver.tar.gz::$_fork/archive/$_commit.tar.gz"
         "imgui-$_imguitag.tar.gz::https://github.com/ocornut/imgui/archive/refs/tags/$_imguitag.tar.gz")
-sha256sums=('83f9af1d87591284054587ace67d456eac3e18bea21218dd44c170c98ca12628'
+sha256sums=('3dd56f05269756136e4b838c184db04e17aed7bd42cb838f98d9c8de2f5dcd29'
             'ca0653454ed371b7a87e9b0bc29a5d15c9be7f7c0fbe778042fc48c71df1d3d8')
 
 _srcdir="HyperCat-Agent-$_commit"
