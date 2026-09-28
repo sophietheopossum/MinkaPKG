@@ -4,8 +4,10 @@
 #
 #   minkarepo init            create an empty database (run this FIRST, before
 #                             adding [minka] to pacman.conf)
-#   minkarepo publish <pkg>   build, then add to the repo  (the usual one)
-#   minkarepo build   <pkg>   makepkg only, leaves the package in its dir
+#   minkarepo publish <pkg>   build unless already built, then add to the repo
+#                             (the usual one)
+#   minkarepo build   <pkg>   makepkg only (always rebuilds), leaves the package
+#                             in its dir
 #   minkarepo add     <pkg>   add an already-built package to the repo
 #   minkarepo list            what the repo currently holds
 #   minkarepo remove  <name>  drop a package from the repo and delete its file
@@ -37,7 +39,7 @@ self=$(cd "$(dirname "$prog")" && pwd)
 die() { echo "minkarepo: $*" >&2; exit 1; }
 
 usage() {
-	sed -n '2,14p' "$prog" | sed 's/^# \{0,1\}//' >&2
+	sed -n '2,16p' "$prog" | sed 's/^# \{0,1\}//' >&2
 	exit 1
 }
 
@@ -87,6 +89,34 @@ do_build() {
 	# -s installs missing deps, -f overwrites a previous build of the same
 	# version so a rebuild after editing the PKGBUILD is not a manual cleanup.
 	( cd "$pkgdir" && makepkg -sf )
+}
+
+# True when every package the PKGBUILD would produce for its current
+# pkgver-pkgrel already exists. `makepkg --packagelist` names exactly those
+# files (split packages, arch and PKGDEST included) without building anything.
+# A VCS PKGBUILD whose pkgver() would move on is judged by the pkgver written in
+# the file; rebuild it explicitly with `minkarepo build`.
+up_to_date() {
+	list=$(cd "$pkgdir" && makepkg --packagelist 2>/dev/null) || return 1
+	[ -n "$list" ] || return 1
+	# The loop runs in a pipeline subshell, so `exit 1` only leaves the loop and
+	# becomes the pipeline's (and so the function's) status.
+	echo "$list" | while IFS= read -r p; do
+		[ -f "$p" ] || exit 1
+	done
+}
+
+# A Floorp build takes hours: re-running publish just to (re)add a package that
+# is already built must not start another one.
+do_publish() {
+	need_pkgdir "${1:-}"
+	if up_to_date; then
+		echo "==> $1 is already built for its current version, skipping makepkg"
+		echo "    (to rebuild anyway: minkarepo build $1, then minkarepo add $1)"
+	else
+		do_build "$1"
+	fi
+	do_add "$1"
 }
 
 do_add() {
@@ -143,7 +173,7 @@ case $cmd in
 	init)    do_init ;;
 	build)   do_build "${1:-}" ;;
 	add)     do_add "${1:-}" ;;
-	publish) do_build "${1:-}"; do_add "${1:-}" ;;
+	publish) do_publish "${1:-}" ;;
 	list)    do_list ;;
 	remove)  do_remove "${1:-}" ;;
 	*)       usage ;;
