@@ -15,3 +15,9 @@
 # sha256sums; a 4 MB wasm blob does not belong in git.
 *.wasm
 wasm_exec-*.js
+
+# Floorp's saved PGO profile (named by runtime commit, reused so a rebuild of the
+# same runtime skips the profiling build) and makepkg's clone of its git source.
+floorp/floorp-runtime-*-merged.profdata
+floorp/floorp-runtime-*-jarlog
+floorp/floorp-projects.floorp-core/
