@@ -122,20 +122,34 @@ do_publish() {
 do_add() {
 	need_pkgdir "${1:-}"
 	need_repo
-	# Deliberately not `ls`-parsed: a glob keeps filenames with odd characters
-	# intact, and split PKGBUILDs legitimately produce several packages.
-	found=0
-	for p in "$pkgdir"/*.pkg.tar.zst; do
+	name=$1
+	# Only what the PKGBUILD builds at its CURRENT pkgver-pkgrel, never a glob of
+	# the package dir: makepkg leaves every earlier build beside the new one, and
+	# repo-add takes its arguments in order. Given an older version first, it
+	# replaces the database's entry with it and -R deletes that entry's file,
+	# which is the very next argument: "File ... not found", then "Package
+	# database was not modified due to errors" with the files already deleted.
+	# (10/10/2026, four floorp versions in floorp/.) `makepkg --packagelist`
+	# still names every package of a split PKGBUILD.
+	list=$(cd "$pkgdir" && makepkg --packagelist 2>/dev/null) ||
+		die "makepkg --packagelist failed for $name"
+	# A here-document, not a pipe: a pipeline would run the loop in a subshell
+	# and lose the argument list it builds.
+	set --
+	while IFS= read -r p; do
 		[ -f "$p" ] || continue
-		found=1
 		echo "==> publishing $(basename "$p")"
 		cp -f "$p" "$REPO/"
-	done
-	[ "$found" = 1 ] || die "$1 has no built package. Run: minkarepo build $1"
+		set -- "$@" "$REPO/$(basename "$p")"
+	done <<-EOF
+	$list
+	EOF
+	[ $# -gt 0 ] || die "$name has no built package. Run: minkarepo build $name"
 
 	# -R deletes the superseded package file from the repo dir, so old
-	# versions do not accumulate silently.
-	repo-add -R "$REPO/$DB.db.tar.zst" "$REPO"/*.pkg.tar.zst
+	# versions do not accumulate silently. Only the packages just copied are
+	# passed: the rest of the repo is already in the database.
+	repo-add -R "$REPO/$DB.db.tar.zst" "$@"
 	echo
 	echo "Added to $REPO. To see it in pamac:"
 	echo "  sudo pacman -Sy"
