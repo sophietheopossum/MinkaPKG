@@ -147,6 +147,8 @@ _deno() {
 # Apply one of Floorp's own patches, or fail the build. The `git apply ... || true`
 # this replaces is how a month of packages shipped with none of them applied. A patch
 # that is already in the tree is accepted, so `makepkg -e` can re-run build().
+# Call it as `_floorp_patch ... || exit 1`: that stops build() whether or not errexit
+# is in force where it runs.
 _floorp_patch() {
   local _patch="$1"
   shift
@@ -455,7 +457,7 @@ END
 
   # floorp patches 1/3
   for i in .github/patches/upstream/*.patch; do
-    _floorp_patch "$i" --ignore-space-change --ignore-whitespace
+    _floorp_patch "$i" --ignore-space-change --ignore-whitespace || exit 1
   done
 
   # floorp pre-mach
@@ -465,7 +467,7 @@ END
 
   # floorp patches 2/3
   for i in .github/patches/packaging/*.patch; do
-    _floorp_patch "$i" --ignore-space-change --ignore-whitespace
+    _floorp_patch "$i" --ignore-space-change --ignore-whitespace || exit 1
   done
 
   # The one line that makes the build traverse noraneko/ at all. Without it nothing
@@ -502,7 +504,7 @@ END
     case "$i" in
       *.windows.patch | *.darwin.patch) continue ;;
     esac
-    _floorp_patch "$i" --directory obj-artifact-build-output/dist/bin --unsafe-paths
+    _floorp_patch "$i" --directory obj-artifact-build-output/dist/bin --unsafe-paths || exit 1
   done
 
   # preference override
