@@ -12,12 +12,16 @@ in 12.20.1:
   tab-sleep-exclusion  saved exclusions were dropped at the first navigation in
                        each new window
 
-Left alone, same pattern: Addons (the Chrome Web Store install state is shared as
-undefined; fixing it changes install prompts in ways not tested here), and Pwa,
-RebootPanelMenuComponent, HubPanelMenuComponent (no effect).
+Left alone, same cause: Addons (init() reads its state and prompt customizer before
+their initializers ran and can share them as undefined; fixing it changes install
+prompts in ways not tested here), and Pwa, RebootPanelMenuComponent,
+HubPanelMenuComponent (no effect).
 Found and tested 12/10/2026 against 12.20.1-2 with a rebuilt feature bundle.
-Drop a file's part once Floorp fixes that class. Every hunk removes lines, so
-`patch` either puts it in the right place or fails.
+Drop a file's part once Floorp fixes that class. `patch` anchors each hunk on the
+lines it removes and on everything from there down to `init(): void {`: it cannot
+land anywhere else, and it fails once one of those field lines changes. Nothing
+else is checked: prepare() passes -F100, so the class line and the first statements
+of init() can change and it still applies ("with fuzz N"). Then read init() again.
 
 --- a/noraneko/browser-features/chrome/common/idle-memory-reclaim/index.ts
 +++ b/noraneko/browser-features/chrome/common/idle-memory-reclaim/index.ts

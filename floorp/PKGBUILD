@@ -138,10 +138,13 @@ sha256sums=(
   '6319b6209509c2fb98f302fe187abeeab4783c198cb2941f2bcc7d851e84c973'
   # 0003 is for Floorp's own sources, in the copy prepare() makes under noraneko/.
   # Two features threw their saved settings away at every start: idle memory reclaim
-  # never ran, and tab-sleep exclusions were dropped at the first navigation. The file
-  # says what it changes and when to drop it. If a new Floorp no longer has the lines
-  # it removes, `patch` fails right here in prepare(), before anything is compiled.
-  '3dfebdbc0ef88c08dd19598a18edcb77b272312b08b087c3eebfd8764300de37'
+  # did not run until its setting was changed in the running browser, and tab-sleep
+  # exclusions stopped applying at the first navigation. The file says what it changes
+  # and when to drop it. If a new Floorp no longer has the lines it removes, `patch`
+  # fails right here in prepare(), before anything is compiled. prepare() is the only
+  # place a source[] patch is applied: the first build after adding one must not be
+  # `makepkg -e`, which skips prepare() and would package the tree without it.
+  'fa3ee14771eddfa1d3ccdae4085efe88765e87ddf63a4965b4d8866c5cbdf8a6'
 )
 
 _deno() {
