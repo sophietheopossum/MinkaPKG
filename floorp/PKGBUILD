@@ -28,7 +28,7 @@
 _pkgname="floorp"
 pkgname="$_pkgname"
 pkgver=12.20.1
-pkgrel=2
+pkgrel=3
 pkgdesc="Firefox-based web browser focused on performance and customizability"
 url="https://github.com/Floorp-Projects/Floorp"
 license=('MPL-2.0')
@@ -124,6 +124,7 @@ source=(
   "floorp-projects.floorp-core"::"git+https://github.com/Floorp-Projects/Floorp-core.git"
   "$_pkgname.desktop"
   '0002-vendor-must-be-implied-not-confvars.patch'
+  '0003-field-initializers-must-not-undo-init.patch'
 )
 sha256sums=(
   'f596fc1bda0c9118be83c76bcc981ffe4e9eb4f4447a4793ddcd558ec1e6b410'
@@ -135,6 +136,12 @@ sha256sums=(
   # own upstream/moz.configure.patch owns that file and brings the "Ablaze" vendor in
   # through .github/assets/config/moz.configure.
   '6319b6209509c2fb98f302fe187abeeab4783c198cb2941f2bcc7d851e84c973'
+  # 0003 is for Floorp's own sources, in the copy prepare() makes under noraneko/.
+  # Two features threw their saved settings away at every start: idle memory reclaim
+  # never ran, and tab-sleep exclusions were dropped at the first navigation. The file
+  # says what it changes and when to drop it. If a new Floorp no longer has the lines
+  # it removes, `patch` fails right here in prepare(), before anything is compiled.
+  '3dfebdbc0ef88c08dd19598a18edcb77b272312b08b087c3eebfd8764300de37'
 )
 
 _deno() {

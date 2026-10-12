@@ -1,0 +1,73 @@
+Floorp's chrome features extend NoraComponentBase, whose constructor calls init().
+A subclass's field initializers run only after that constructor returns, so a field
+written as `private x = value;` is set back to `value` right after init() filled it
+in. Floorp's own remedy (modal-parent, context-menu) is `declare`, which emits no
+initializer. This applies it to the two features where the reset breaks something
+in 12.20.1:
+
+  idle-memory-reclaim  the saved setting was replaced by the defaults (off) at every
+                       start, so no reclaim ran until the setting changed while the
+                       browser was running, and the observers and timer registered
+                       at start could never be removed
+  tab-sleep-exclusion  saved exclusions were dropped at the first navigation in
+                       each new window
+
+Left alone, same pattern: Addons (the Chrome Web Store install state is shared as
+undefined; fixing it changes install prompts in ways not tested here), and Pwa,
+RebootPanelMenuComponent, HubPanelMenuComponent (no effect).
+Found and tested 12/10/2026 against 12.20.1-2 with a rebuilt feature bundle.
+Drop a file's part once Floorp fixes that class. Every hunk removes lines, so
+`patch` either puts it in the right place or fails.
+
+--- a/noraneko/browser-features/chrome/common/idle-memory-reclaim/index.ts
++++ b/noraneko/browser-features/chrome/common/idle-memory-reclaim/index.ts
+@@ -199,19 +199,24 @@
+  */
+ @noraComponent(import.meta.hot)
+ export default class IdleMemoryReclaim extends NoraComponentBase {
+-  private settings: IdleMemoryReclaimSettings = { ...DEFAULT_SETTINGS };
++  // NoraComponentBase invokes init() from its constructor. `declare` avoids
++  // derived-class field initializers overwriting what init() set up there.
++  declare private settings: IdleMemoryReclaimSettings;
+   /** Seconds passed to addIdleObserver; removal needs the same value. */
+-  private registeredIdleSec: number | null = null;
+-  private idleObserver: nsIObserver | null = null;
+-  private prefObserver: nsIObserver | null = null;
++  declare private registeredIdleSec: number | null;
++  declare private idleObserver: nsIObserver | null;
++  declare private prefObserver: nsIObserver | null;
+   /** Timer that re-evaluates idle state periodically. */
+-  private pollTimerId: ReturnType<typeof setInterval> | null = null;
++  declare private pollTimerId: ReturnType<typeof setInterval> | null;
+   /** Guards against a reclaim starting while one is already running. */
+   private reclaiming = false;
+   /** Set on teardown so work awaiting a snapshot stops instead of resuming. */
+   private disposed = false;
+ 
+   init(): void {
++    this.registeredIdleSec = null;
++    this.idleObserver = null;
++    this.pollTimerId = null;
+     this.settings = this.loadSettings();
+     this.setupPrefObserver();
+     this.setupIdleObserver();
+--- a/noraneko/browser-features/chrome/common/tab-sleep-exclusion/index.ts
++++ b/noraneko/browser-features/chrome/common/tab-sleep-exclusion/index.ts
+@@ -24,12 +24,15 @@
+ 
+ @noraComponent(import.meta.hot)
+ export default class TabSleepExclusion extends NoraComponentBase {
+-  private settings: TabSleepExclusionSettings = DEFAULT_SETTINGS;
++  // NoraComponentBase invokes init() from its constructor. `declare` avoids
++  // derived-class field initializers overwriting what init() set up there.
++  declare private settings: TabSleepExclusionSettings;
+   // Using 'any' for observer since the nsIObserver type doesn't include QueryInterface
+   // deno-lint-ignore no-explicit-any
+-  private prefObserver: any = null;
++  declare private prefObserver: any;
+ 
+   init(): void {
++    this.settings = DEFAULT_SETTINGS;
+     this.loadSettings();
+     this.setupPrefObserver();
+     this.setupTabListeners();
