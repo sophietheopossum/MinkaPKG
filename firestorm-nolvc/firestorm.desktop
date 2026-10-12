@@ -5,6 +5,6 @@ Exec=firestorm-[EXTENSION]
 Icon=firestorm-[EXTENSION]
 Terminal=false
 Type=Application
-Categories=Application;Internet;Network;Game
+Categories=Network;Game
 StartupNotify=true
 StartupWMClass=do-not-directly-run-firestorm-[EXTENSION]

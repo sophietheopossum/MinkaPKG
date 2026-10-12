@@ -66,7 +66,7 @@ source=(
 )
 sha256sums=('220060b5da6f3096bbb479efe40597148a5eee818dc0747dd32eba8f66e1ced8'
             'SKIP'
-            'db34a50f4b7fda4a465cd0536f17a0f6040ff6b2e40c32594b1f244ebe8e2d60'
+            'd2fc9f12209b3e235993a88f79b4adb60ea63dc80b93c5557a1dc93777188d3c'
             '465f1611c17f90bba8bc7e7cc3e05ffe8cf20fb9c1b7df59053f54a6bceb8283'
             'cbef822d5ce2b1b9eb3bc88bfcaa59dfb2eec2cc698bdcb391b1c332a7ed93fb'
             '5eec78e0196e51d58e45078b84dc277353ef635ff160ff61ac58ab5966245011'
