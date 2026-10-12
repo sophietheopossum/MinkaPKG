@@ -28,7 +28,7 @@
 _pkgname="floorp"
 pkgname="$_pkgname"
 pkgver=12.20.1
-pkgrel=1
+pkgrel=2
 pkgdesc="Firefox-based web browser focused on performance and customizability"
 url="https://github.com/Floorp-Projects/Floorp"
 license=('MPL-2.0')
@@ -163,6 +163,22 @@ _floorp_patch() {
   fi
 }
 
+# The one upstream patch of Floorp's that build() leaves out. It makes
+# CheckCompatibility() call the profile incompatible unless <profile>/buildid2 exists
+# and equals the application's copy, and nothing in Floorp ever writes the profile's
+# copy. So EVERY launch threw away the startup cache and the quota manager's origin
+# cache: about a third of a second per start (measured 11/10/2026), and some 20 MB of
+# cache files written again each time. The check is there for Floorp's own updater,
+# which can ship a build that differs in buildid2 alone. This package has no updater,
+# and every build() gets a new build ID (MOZ_BUILD_DATE, makepkg's start time), which
+# Gecko's own LastVersion check answers with one purge, as it should.
+# What no longer heals itself: files under /usr/lib/floorp changed WITHOUT a build()
+# (makepkg -R after editing dist/bin, edits in place), or two builds under one
+# exported SOURCE_DATE_EPOCH. Then start once with `floorp --purgecaches`.
+# The sha256 is of the lines the patch adds; prepare() compares it.
+_floorp_dropped_patch='toolkit-xre-nsAppRunner.cpp.patch'
+_floorp_dropped_sha256='4cf22f8a75fac135618c6126cdfdbb59082db7e16841760b5c84d67768362ebc'
+
 prepare() (
   mkdir -p mozbuild
 
@@ -189,6 +205,16 @@ prepare() (
       rm -f -- "$_pkgsrc_runtime/$_created"
     done < <(awk '/^--- \/dev\/null$/ { getline; if (sub(/^\+\+\+ b\//, "")) print }' "$_p")
   done
+
+  # build() leaves $_floorp_dropped_patch out, which was decided for the patch as
+  # runtime c74fe1a has it. Stop here, before hours of compiling, if a new runtime
+  # renamed it or changed what it adds (line numbers and context may move freely).
+  local _dropped="$_pkgsrc_runtime/.github/patches/upstream/$_floorp_dropped_patch"
+  if [[ ! -f "$_dropped" ]] \
+    || [[ "$(grep '^+' "$_dropped" | grep -v '^+++ ' | sha256sum)" != "$_floorp_dropped_sha256  -" ]]; then
+    echo "==> ERROR: $_floorp_dropped_patch is gone or has changed; see _floorp_dropped_patch in the PKGBUILD" >&2
+    exit 1
+  fi
 
   # prepare api keys
   cp floorp-projects.floorp-core/apis/api-*-key ./
@@ -472,6 +498,29 @@ END
 
   # floorp patches 1/3
   for i in .github/patches/upstream/*.patch; do
+    if [[ "${i##*/}" == "$_floorp_dropped_patch" ]]; then
+      if git apply --check --reverse --ignore-space-change --ignore-whitespace "$i" 2> /dev/null; then
+        # makepkg -e on a tree an earlier build() patched: take it back out.
+        git apply --reverse --ignore-space-change --ignore-whitespace "$i" || exit 1
+        echo "Removed: $i"
+      elif git apply --check --ignore-space-change --ignore-whitespace "$i" 2> /dev/null; then
+        echo "Left out: $i"
+      else
+        echo "==> ERROR: $i is neither in the tree nor out of it" >&2
+        exit 1
+      fi
+      # makepkg without -e has just extracted the tarball's file over the patched one,
+      # with the tarball's date: older than the object an earlier build() compiled
+      # from the patched file. make would keep that object, and the check with it.
+      local _dropped_src
+      _dropped_src=$(sed -n 's#^+++ b/##p' "$i")
+      if [[ ! -f "$_dropped_src" ]]; then
+        echo "==> ERROR: $i does not name one existing file" >&2
+        exit 1
+      fi
+      touch -- "$_dropped_src" || exit 1
+      continue
+    fi
     _floorp_patch "$i" --ignore-space-change --ignore-whitespace || exit 1
   done
 
@@ -499,6 +548,15 @@ END
 
   echo "Building browser..."
   ./mach build --priority normal
+
+  # Proof that the dropped check did not get built in after all. An object kept from
+  # an earlier build() brings it back with nothing failing, and the string comes from
+  # nowhere else in libxul (12/10/2026).
+  local _xul=obj-artifact-build-output/dist/bin/libxul.so
+  if [[ ! -s "$_xul" ]] || grep -aq 'buildid2' "$_xul"; then
+    echo "==> ERROR: $_xul is missing or still has the buildid2 check; see _floorp_dropped_patch" >&2
+    exit 1
+  fi
 
   # missing on install
   cp noraneko/_dist/buildid2 obj-artifact-build-output/dist/bin/browser
