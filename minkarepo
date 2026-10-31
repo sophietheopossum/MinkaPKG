@@ -86,9 +86,40 @@ do_init() {
 do_build() {
 	need_pkgdir "${1:-}"
 	echo "==> building $1"
-	# -s installs missing deps, -f overwrites a previous build of the same
-	# version so a rebuild after editing the PKGBUILD is not a manual cleanup.
-	( cd "$pkgdir" && makepkg -sf )
+	mem_high=${MINKAREPO_MEMORY_HIGH:-8G}
+	mem_max=${MINKAREPO_MEMORY_MAX:-10G}
+	swap_max=${MINKAREPO_MEMORY_SWAP_MAX:-4G}
+	# Compiler temporary files must not live on tmpfs: an LTO link writes
+	# gigabytes of them, exhausted /tmp's per-user quota on 30/10/2026, and a
+	# killed build leaves them orphaned there. Use a per-package disk-backed
+	# directory instead, cleared before each build and after a successful one.
+	build_tmp=${MINKAREPO_TMPDIR:-${XDG_CACHE_HOME:-$HOME/.cache}/minkarepo/tmp}/$1
+	rm -rf "$build_tmp"
+	mkdir -p "$build_tmp"
+	echo "==> build temporary directory: $build_tmp"
+	# A terminal-launched makepkg otherwise stays in the login session scope,
+	# so systemd-oomd can kill the compositor along with the build. A separate
+	# user scope gives the build its own cgroup; the caps make the kernel stop
+	# the build before it can consume the whole desktop session.
+	if [ -z "${MINKAREPO_NO_ISOLATE:-}" ] \
+		&& command -v systemd-run >/dev/null 2>&1 \
+		&& systemctl --user show-environment >/dev/null 2>&1; then
+		echo "==> isolating build in a systemd user scope (MemoryHigh=$mem_high MemoryMax=$mem_max MemorySwapMax=$swap_max)"
+		( cd "$pkgdir" && TMPDIR="$build_tmp" systemd-run --user --scope --collect \
+			--unit="minkarepo-build-$1-$$.scope" \
+			--description="minkarepo build $1" \
+			-p Slice=app.slice \
+			-p MemoryAccounting=yes \
+			-p MemoryHigh="$mem_high" \
+			-p MemoryMax="$mem_max" \
+			-p MemorySwapMax="$swap_max" \
+			makepkg -sf )
+	else
+		# -s installs missing deps, -f overwrites a previous build of the same
+		# version so a rebuild after editing the PKGBUILD is not a manual cleanup.
+		( cd "$pkgdir" && TMPDIR="$build_tmp" makepkg -sf )
+	fi
+	rm -rf "$build_tmp"
 }
 
 # True when every package the PKGBUILD would produce for its current

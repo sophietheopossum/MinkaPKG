@@ -67,6 +67,15 @@ Then `sudo pacman -Sy`.
 
 `MINKAREPO_DIR` and `MINKAREPO_DB` override the location and database name.
 
+Builds run in their own systemd user scope by default, rather than in the
+graphical login session's scope, with `MemoryHigh=8G`, `MemoryMax=10G`, and
+`MemorySwapMax=4G`. Override those limits with `MINKAREPO_MEMORY_HIGH`,
+`MINKAREPO_MEMORY_MAX`, and `MINKAREPO_MEMORY_SWAP_MAX`, or set
+`MINKAREPO_NO_ISOLATE=1` to run `makepkg` directly in the calling session.
+Builds also get a disk-backed per-package `TMPDIR` under
+`~/.cache/minkarepo/tmp` (override the parent with `MINKAREPO_TMPDIR`), so
+compiler temporary files cannot exhaust the tmpfs per-user quota on `/tmp`.
+
 Symlink it onto PATH if you'd rather not type the path:
 
 ```sh
