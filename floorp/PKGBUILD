@@ -17,6 +17,10 @@
                              # 7/9/2026 attempt peaked 9.3 GiB resident + 9.6 GiB swap and
                              # took the session down with it. Thin is still LTO.
 : ${_build_system_libs:=true} # use system libraries, reduces build time
+: ${_build_local_repos:=false} # true: build committed HEADs from MinkaDE floorp/* clones
+: ${_local_repos_root:=}
+: ${_local_floorp_ref:=branch=main}
+: ${_local_core_ref:=branch=main}
 
 : ${_build_limit_cores:=auto} # number of cores for parallelism; or auto, limited by RAM
 
@@ -117,11 +121,18 @@ options=(
 
 _pkgsrc="Floorp-$pkgver"
 _pkgsrc_runtime="Floorp-Runtime-$_runtime_commit"
+_pkgsrc_core="floorp-projects.floorp-core"
+if [[ "${_build_local_repos::1}" == "t" ]]; then
+  : ${_local_repos_root:=${startdir:-$PWD}/../../floorp}
+  _pkgsrc="Floorp-local-$pkgver"
+  _pkgsrc_runtime="Floorp-Runtime-local-$_runtime_commit"
+  _pkgsrc_core="floorp-projects.floorp-core-local"
+fi
 _pkgext="tar.gz"
 source=(
   "$_pkgname-components-$pkgver.$_pkgext"::"https://github.com/Floorp-Projects/Floorp/archive/refs/tags/v$pkgver.$_pkgext"
   "$_pkgname-runtime-${_runtime_commit::7}.$_pkgext"::"https://github.com/Floorp-Projects/Floorp-Runtime/archive/$_runtime_commit.$_pkgext"
-  "floorp-projects.floorp-core"::"git+https://github.com/Floorp-Projects/Floorp-core.git"
+  "$_pkgsrc_core"::"git+https://github.com/Floorp-Projects/Floorp-core.git"
   "$_pkgname.desktop"
   '0002-vendor-must-be-implied-not-confvars.patch'
   'firefox-2062135-round-viewport-source-edges.patch'
@@ -142,6 +153,12 @@ sha256sums=(
   # wp_viewport protocol error.
   '14342c2d760cc6fb09d313361985770aef2e3ba898cfc8f54d36a92073faeb71'
 )
+if [[ "${_build_local_repos::1}" == "t" ]]; then
+  source[0]="$_pkgsrc"::"git+file://$_local_repos_root/Floorp#$_local_floorp_ref"
+  source[1]="$_pkgsrc_runtime"::"git+file://$_local_repos_root/Floorp-Runtime#commit=$_runtime_commit"
+  source[2]="$_pkgsrc_core"::"git+file://$_local_repos_root/Floorp-core#$_local_core_ref"
+  sha256sums[0]='SKIP'
+fi
 # There is no 0003 any more: it gave idle-memory-reclaim and tab-sleep-exclusion
 # `declare` fields so subclass initializers stopped undoing init(), and 12.21.0
 # upstream has both classes fixed that way. prepare() is still the only place a
@@ -228,7 +245,7 @@ prepare() (
   fi
 
   # prepare api keys
-  cp floorp-projects.floorp-core/apis/api-*-key ./
+  cp "$_pkgsrc_core"/apis/api-*-key ./
 
   # configure
   cat > mozconfig << END
