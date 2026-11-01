@@ -1,0 +1,77 @@
+# Maintainer: Sophie <goldsnakeking@gmail.com>
+
+# Fileless dependency holder for building and running a local Floorp checkout.
+# It deliberately does not depend on or provide `floorp`, so it can be installed
+# alongside either the packaged browser or an unpackaged development build.
+# Keep these lists in sync with ../floorp/PKGBUILD when Floorp is bumped.
+
+pkgname=floorp-dev
+pkgver=12.21.0
+pkgrel=1
+pkgdesc="Metapackage for building and running a local Floorp checkout"
+arch=('any')
+url="https://github.com/Floorp-Projects/Floorp"
+license=('MPL-2.0')
+
+depends=(
+	# Arch's implicit build environment. The Floorp PKGBUILD does not list
+	# this because makepkg already assumes it is installed.
+	'base-devel'
+
+	# Floorp runtime dependencies. Real package names are used for the
+	# entries the Floorp PKGBUILD expresses as soname dependencies.
+	'dbus'
+	'ffmpeg'
+	'gtk3'
+	'libffi'
+	'libjpeg-turbo'
+	'libpipewire'
+	'libvpx'
+	'libwebp'
+	'libxss'
+	'libxt'
+	'mime-types'
+	'nspr'
+	'nss'
+	'pixman'
+	'ttf-font'
+	'zlib'
+
+	# Floorp build dependencies, including Xvfb for the default PGO build.
+	'cargo'
+	'cbindgen'
+	'clang'
+	'deno'
+	'diffutils'
+	'git'
+	'imake'
+	'inetutils'
+	'jack'
+	'lld'
+	'llvm'
+	'mesa'
+	'nasm'
+	'nodejs'
+	'python'
+	'python-setuptools'
+	'rsync'
+	'unzip'
+	'wasi-compiler-rt'
+	'wasi-libc'
+	'wasi-libc++'
+	'wasi-libc++abi'
+	'xorg-server-xvfb'
+	'yasm'
+	'zip'
+)
+optdepends=(
+	'hunspell-dictionary: Spell checking'
+	'libnotify: Notification integration'
+	'networkmanager: Location detection via available WiFi networks'
+	'speech-dispatcher: Text-to-Speech'
+	'xdg-desktop-portal: Screensharing with Wayland'
+)
+
+package() {
+	:
+}
