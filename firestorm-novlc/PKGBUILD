@@ -8,7 +8,7 @@ _realname=firestorm
 pkgver=7.2.5.81788
 _src=Firestorm_Release_$pkgver
 _extension=os
-pkgrel=1
+pkgrel=2
 pkgdesc="Firestorm is a feature-packed third-party viewer for Second Life  and OpenSim grids ($_extension version)"
 arch=('x86_64')
 url=https://www.firestormviewer.org
@@ -19,8 +19,9 @@ install='firestorm.install'
 # skins/.../mime_types_linux.xml names media_plugin_gstreamer accordingly. The
 # built libmedia_plugin_gstreamer.so dlopens libgstreamer-1.0.so.0 and
 # libgstapp-1.0.so.0, neither of which was declared. So: vlc dropped, gstreamer
-# added.
-depends=(apr-util dbus-glib glu gtk2 lib32-libidn lib32-libsndfile
+# added. The bundled 32-bit voice binaries need libidn.so.11, supplied by
+# the lib32-libidn11 optdep; lib32-libidn supplies libidn.so.12 instead.
+depends=(apr-util dbus-glib glu gtk2 lib32-libsndfile
          lib32-util-linux lib32-zlib libbsd libgl libidn libjpeg-turbo
          libpng libxcrypt-compat libxss libxml2 mesa nss openal sdl
          gstreamer gst-plugins-base-libs zlib)
