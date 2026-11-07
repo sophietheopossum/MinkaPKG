@@ -1,0 +1,20 @@
+Kernel 7.3 removed the task_euid() macro from linux/cred.h (task_uid()
+remains). The vendored Rust helper still calls it, breaking bindings
+generation and the helper compile:
+
+  error: call to undeclared function 'task_euid'
+
+task_euid() expanded to task_cred_xxx(task, euid); use that directly.
+
+diff --git a/fs/vendor/kernel-rust/helpers/task.c b/fs/vendor/kernel-rust/helpers/task.c
+--- a/fs/vendor/kernel-rust/helpers/task.c
++++ b/fs/vendor/kernel-rust/helpers/task.c
+@@ -28,7 +28,7 @@ __rust_helper kuid_t rust_helper_task_uid(struct task_struct *task)
+ 
+ __rust_helper kuid_t rust_helper_task_euid(struct task_struct *task)
+ {
+-	return task_euid(task);
++	return task_cred_xxx(task, euid);
+ }
+ 
+ #ifndef CONFIG_USER_NS

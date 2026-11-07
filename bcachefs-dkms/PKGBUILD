@@ -1,0 +1,60 @@
+# Maintainer: Sophie <goldsnakeking@gmail.com>
+
+# Local rebuild of Arch's bcachefs-dkms 1.39.7 (dkms-only; the tools
+# package is unmodified from the repos) with a kernel 7.3 build fix —
+# 7/11/2026:
+#
+#   Upstream kernel 7.3 removed the task_euid() macro, which the vendored
+#   Rust helpers in 1.39.7 still call, so the DKMS build fails outright.
+#   0002 expands it via task_cred_xxx(), exactly what it used to be.
+#
+# Versioning is deliberate: epoch matches upstream (3), pkgver matches
+# (1.39.7), and pkgrel=2 sits above extra (1) and cachyos-extra-v4 (1.1)
+# so this package installs now — while any newer upstream release
+# (pkgver bump or higher pkgrel) automatically supersedes it on -Syu.
+# Delete this package once the repo version builds on current kernels.
+
+pkgname=bcachefs-dkms
+epoch=3
+pkgver=1.39.7
+pkgrel=2
+pkgdesc='BCacheFS filesystem utilities'
+arch=('x86_64')
+url='https://bcachefs.org/'
+license=('GPL-2.0-only')
+depends=(
+  bash
+  dkms
+  rust
+  rust-bindgen
+  rust-src
+)
+makedepends=(
+  git
+)
+options=(!lto)
+source=(
+  "git+https://github.com/koverstreet/bcachefs-tools.git#tag=v${pkgver}"
+  0001-do-not-load-binary-modules-for-dkms-package.patch
+  0002-rust-helpers-replace-removed-task_euid.patch
+)
+b2sums=('SKIP'
+        '55cc2148c23a18f1d286fb77941a03b41ee4b3748728e517e5af06ec88fab41262c67b603907b0da8319bc5f08ff1667edc1480284bd4d3aca72c5412cb68e9f'
+        '3e0ff1a32f490a4273c58846ccdeb39d936d662a956a68ee4d7c853d43069e36f5a1613569479ecfdcdd0d6cdff4f5961c38ae5ba2359241b48860b59d634c5b')
+
+prepare() {
+  cd bcachefs-tools
+  patch -Np1 < ../0001-do-not-load-binary-modules-for-dkms-package.patch
+  patch -Np1 < ../0002-rust-helpers-replace-removed-task_euid.patch
+}
+
+package() {
+  cd bcachefs-tools
+  make \
+    PREFIX="/usr" \
+    LIBEXECDIR=/usr/lib \
+    DESTDIR="${pkgdir}" \
+    ROOT_SBINDIR="/usr/bin" \
+    INITRAMFS_DIR="/usr/lib/initcpio/" \
+    install_dkms
+}
