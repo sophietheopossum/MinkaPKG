@@ -1,0 +1,57 @@
+# Maintainer: Sophie <goldsnakeking@gmail.com>
+
+pkgname=minka-syu
+pkgver=0.1.0
+pkgrel=4
+pkgdesc="Update notifier & browser: safe repo+AUR checks with repository provenance; applying is paru's job"
+arch=('x86_64')
+license=('MIT')
+# The core only READS through pacman against a throwaway DB root; applying
+# is delegated to paru in a terminal, and neither is linked. quickshell
+# runs the UI. paru/rio/libnotify are runtime tools the core shells out
+# to: paru for AUR checks and apply, rio as the default terminal for
+# apply (MINKA_SYU_TERMINAL overrides), libnotify for --notify.
+depends=('glibc' 'libgcc' 'pacman' 'quickshell')
+makedepends=('cargo')
+optdepends=('paru: AUR update checks and applying updates'
+            'rio: default terminal for applying updates'
+            'libnotify: desktop notifications from the check timer')
+
+# No source tarball: this packages the MinkaDE checkout itself. The
+# PKGBUILD lives in MinkaPKG/minka-syu, so the app is two levels up.
+# The UI also consumes the Proustite and MinkaLink submodules through
+# symlinks inside ui/, which package() dereferences.
+_minkade="$(realpath "$startdir/../..")"
+_src="$_minkade/MinkaSyu"
+
+build() {
+	cd "$_src"
+	export RUSTUP_TOOLCHAIN=stable
+	cargo build --frozen --release
+}
+
+check() {
+	cd "$_src"
+	export RUSTUP_TOOLCHAIN=stable
+	cargo test --frozen --release
+}
+
+package() {
+	cd "$_src"
+	install -Dm755 target/release/minka-syu "$pkgdir/usr/bin/minka-syu"
+
+	# UI. cp -rL dereferences the Proustite/MinkaLink symlinks: the
+	# installed tree must be self-contained, since the links point at
+	# sibling submodules that do not exist outside the checkout.
+	install -dm755 "$pkgdir/usr/share/minka-syu"
+	cp -rL ui "$pkgdir/usr/share/minka-syu/ui"
+	# Submodule gitdir pointer files are not part of the app.
+	find "$pkgdir/usr/share/minka-syu/ui" -name .git -delete
+	find "$pkgdir/usr/share/minka-syu/ui" -type d -exec chmod 755 {} +
+	find "$pkgdir/usr/share/minka-syu/ui" -type f -exec chmod 644 {} +
+
+	install -Dm644 dist/minka-syu-check.service "$pkgdir/usr/lib/systemd/user/minka-syu-check.service"
+	install -Dm644 dist/minka-syu-check.timer "$pkgdir/usr/lib/systemd/user/minka-syu-check.timer"
+	install -Dm644 dist/minka-syu.desktop "$pkgdir/usr/share/applications/minka-syu.desktop"
+	install -Dm644 README.md "$pkgdir/usr/share/doc/$pkgname/README.md"
+}
