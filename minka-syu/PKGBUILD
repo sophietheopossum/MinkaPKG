@@ -1,9 +1,9 @@
 # Maintainer: Sophie <goldsnakeking@gmail.com>
 
 pkgname=minka-syu
-pkgver=0.1.0
-pkgrel=4
-pkgdesc="Update notifier & browser: safe repo+AUR checks with repository provenance; applying is paru's job"
+pkgver=0.2.0
+pkgrel=1
+pkgdesc="Update notifier, browser & installed manager: safe repo+AUR checks with provenance; applying is paru's job"
 arch=('x86_64')
 license=('MIT')
 # The core only READS through pacman against a throwaway DB root; applying
