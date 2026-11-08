@@ -1,7 +1,7 @@
 # Maintainer: Sophie <goldsnakeking@gmail.com>
 
 pkgname=minka-syu
-pkgver=0.4.0
+pkgver=0.5.0
 pkgrel=1
 pkgdesc="Update notifier, browser & installed manager: safe repo+AUR checks with provenance; applying is paru's job"
 arch=('x86_64')
