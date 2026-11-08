@@ -2,7 +2,7 @@
 
 pkgname=minka-syu
 pkgver=0.3.0
-pkgrel=1
+pkgrel=2
 pkgdesc="Update notifier, browser & installed manager: safe repo+AUR checks with provenance; applying is paru's job"
 arch=('x86_64')
 license=('MIT')
@@ -11,13 +11,12 @@ license=('MIT')
 # runs the UI. paru/rio/libnotify are runtime tools the core shells out
 # to: paru for AUR checks and apply, rio as the default terminal for
 # apply (MINKA_SYU_TERMINAL overrides), libnotify for --notify.
-depends=('glibc' 'libgcc' 'pacman' 'quickshell')
+depends=('glibc' 'libgcc' 'pacman' 'quickshell' 'archlinux-appstream-data')
 makedepends=('cargo')
 optdepends=('paru: AUR update checks and applying updates'
             'rio: default terminal for applying updates'
             'libnotify: desktop notifications from the check timer'
-            'appstream: package detail view (name/summary/screenshots)'
-            'archlinux-appstream-data: AppStream catalogs for repo packages')
+            'appstream: package detail view (name/summary/screenshots)')
 
 # No source tarball: this packages the MinkaDE checkout itself. The
 # PKGBUILD lives in MinkaPKG/minka-syu, so the app is two levels up.
