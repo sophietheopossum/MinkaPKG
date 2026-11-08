@@ -1,7 +1,7 @@
 # Maintainer: Sophie <goldsnakeking@gmail.com>
 
 pkgname=minka-syu
-pkgver=0.2.0
+pkgver=0.3.0
 pkgrel=1
 pkgdesc="Update notifier, browser & installed manager: safe repo+AUR checks with provenance; applying is paru's job"
 arch=('x86_64')
@@ -15,7 +15,9 @@ depends=('glibc' 'libgcc' 'pacman' 'quickshell')
 makedepends=('cargo')
 optdepends=('paru: AUR update checks and applying updates'
             'rio: default terminal for applying updates'
-            'libnotify: desktop notifications from the check timer')
+            'libnotify: desktop notifications from the check timer'
+            'appstream: package detail view (name/summary/screenshots)'
+            'archlinux-appstream-data: AppStream catalogs for repo packages')
 
 # No source tarball: this packages the MinkaDE checkout itself. The
 # PKGBUILD lives in MinkaPKG/minka-syu, so the app is two levels up.
