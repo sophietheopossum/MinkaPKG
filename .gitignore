@@ -10,11 +10,14 @@
 *.tar.xz
 *.tar.bz2
 *.zip
+*.deb
+*.AppImage
 # Loose (non-archive) source= downloads, e.g. renbrowser's pinned micron wasm
 # and its wasm_exec shim. Both are fetched by makepkg and verified by
 # sha256sums; a 4 MB wasm blob does not belong in git.
 *.wasm
 wasm_exec-*.js
+sheetbro-bin/sheetbro-bin-*-LICENSE
 
 # Floorp's saved PGO profile (named by runtime commit, reused so a rebuild of the
 # same runtime skips the profiling build) and makepkg's clone of its git source.

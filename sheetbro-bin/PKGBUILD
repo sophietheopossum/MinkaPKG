@@ -1,0 +1,47 @@
+# Maintainer: Sophie <goldsnakeking@gmail.com>
+
+# Prebuilt SheetBro from upstream's official Debian package.
+#
+# This is deliberately a -bin package for now: SheetBro is a Tauri app, so a
+# from-source Arch build means a pnpm/Vite frontend build plus the Rust/Tauri
+# backend. The upstream .deb is small and already contains exactly the desktop
+# payload (/usr/bin/spritsit, the .desktop file and hicolor icons), so it is
+# repacked unchanged apart from an added /usr/bin/sheetbro symlink.
+#
+# To bump: update pkgver, refresh both sha256sums, then re-check the .deb's
+# control Depends and `ldd usr/bin/spritsit` from its data.tar.gz. As of
+# 0.1.0 the only non-base libraries not already pulled in transitively are
+# WebKitGTK 4.1 / JavaScriptCoreGTK 4.1 and GTK 3.
+
+pkgname=sheetbro-bin
+pkgver=0.1.0
+pkgrel=1
+pkgdesc="Fast native spreadsheet app powered by IronCalc (prebuilt)"
+arch=('x86_64')
+url="https://github.com/jetorbitdev/sheetbro"
+license=('MIT')
+depends=('glibc' 'libgcc' 'gtk3' 'webkit2gtk-4.1')
+provides=('sheetbro')
+conflicts=('sheetbro')
+options=('!strip')
+source=("$pkgname-$pkgver.deb::$url/releases/download/v$pkgver/SheetBro_${pkgver}_amd64.deb"
+        "$pkgname-$pkgver-LICENSE::https://raw.githubusercontent.com/jetorbitdev/sheetbro/v$pkgver/LICENSE")
+noextract=("$pkgname-$pkgver.deb")
+sha256sums=('a83f2eea2628e970abc072b03258c82a98faeb31271f5af5afaff982b14a65be'
+            'bcd90baba664e25b69a0a10079f85f116b5f945bbf3c77486d4f17bfef1df4e6')
+
+package() {
+	install -Dm644 "$srcdir/$pkgname-$pkgver-LICENSE" \
+		"$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+
+	# A .deb is an ar archive containing data.tar.gz; the Debian control
+	# metadata is not part of the Arch payload. Extract the outer archive in
+	# $srcdir, then unpack only data.tar.gz into $pkgdir.
+	install -dm755 "$srcdir/deb"
+	bsdtar -xf "$srcdir/$pkgname-$pkgver.deb" -C "$srcdir/deb"
+	bsdtar -xf "$srcdir/deb/data.tar.gz" -C "$pkgdir"
+
+	# Upstream's executable is still called by the project's internal name.
+	# Keep it (the .desktop file references it) and add the obvious alias.
+	ln -s spritsit "$pkgdir/usr/bin/sheetbro"
+}
