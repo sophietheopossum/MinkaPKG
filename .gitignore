@@ -11,6 +11,7 @@
 *.tar.bz2
 *.zip
 *.deb
+*.rpm
 *.AppImage
 # Loose (non-archive) source= downloads, e.g. renbrowser's pinned micron wasm
 # and its wasm_exec shim. Both are fetched by makepkg and verified by

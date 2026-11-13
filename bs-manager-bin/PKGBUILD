@@ -1,0 +1,162 @@
+# Maintainer: Sophie <goldsnakeking@gmail.com>
+
+# BSManager, repacked from upstream's official .rpm WITHOUT being stripped.
+#
+# ---------------------------------------------------------------------------
+# WHY THIS EXISTS: IN THE AUR's bs-manager-bin, "Download" DOES NOTHING.
+#
+# Clicking Download for a Beat Saber version there (1.6.0-1) gives no Steam
+# login, no QR code and no error; at most the window blinks. Upstream issues
+# #1137 and #1120 (both 1.6.0, both open, no maintainer reply) and #988.
+#
+# BSManager runs /opt/BSManager/resources/assets/scripts/DepotDownloader for
+# the download, and that file is a .NET single-file program: an 11.8 MB ELF
+# host with 67.6 MB of bundle (the runtime and the application itself)
+# appended after the ELF image. makepkg's strip pass rewrites every ELF it
+# finds and keeps only what the section table describes, so the bundle is cut
+# off. The host then exits at once with code 159 and, on stderr,
+#     Failure processing application bundle; possible file corruption.
+# BSManager reads only the helper's stdout and treats its exit as the end of
+# a normal run, so all that reaches the log is "DepotDownloader process end
+# with code 159". (159 is the low byte of .NET's BundleExtractionFailure,
+# 0x8000809f. It is not SIGSYS, whatever 128+31 suggests, and has nothing to
+# do with seccomp.)
+#
+# Measured here on 13/11/2026 with this machine's makepkg.conf:
+#   as shipped       79413529 bytes, prints "DepotDownloader v3.4.0" + usage
+#   after `strip --strip-unneeded` (what makepkg runs on a PIE)
+#                    11831712 bytes, exits 159 with the message above
+#   the AUR PKGBUILD built unchanged gives exactly the second file.
+# Run from this package with BSManager's own arguments (-app 620980 -depot
+# 620981 -dir <v> -manifest <id> -qr) it connects to Steam and prints the
+# "[Info]|[QRCode]|https://s.team/q/..." line the window draws its QR code
+# from.
+#
+# Hence options=('!strip'), for the whole package rather than that one file.
+# It is the only file in 1.6.0 with data after its ELF image, but stripping a
+# prebuilt Electron gains nothing, and the AUR's bs-manager-git carries
+# '!strip' for the Rust helper (bs-downloader) that replaces DepotDownloader
+# on upstream's main branch.
+#
+# DO NOT "FIX" THIS BY DROPPING IN SteamRE's DepotDownloader, as the advice
+# under #988 says. That advice dates from 1.5.4-1.5.6, whose bundled helper
+# was broken as built (upstream PR #1082, in 1.6.0, replaced it). The bundled
+# file is BSManager's fork: it prints the "[Info]|[Tag]|data" lines the window
+# parses. The stock program downloads, but its QR code goes to a terminal
+# nobody sees and there is no progress bar.
+#
+# check() runs the helper as shipped, so a release whose helper does not
+# start on this machine fails the build instead of the Download button.
+# check() cannot see what makepkg does AFTER package(), which is where strip
+# runs, so after touching options= confirm the built package by hand:
+#   bsdtar -xOf bs-manager-bin-*.pkg.tar.zst \
+#       opt/BSManager/resources/assets/scripts/DepotDownloader | wc -c
+# must print the first size above, not ~11.8 MB.
+# ---------------------------------------------------------------------------
+#
+# WHAT ELSE DIFFERS FROM THE AUR PACKAGE
+#
+# - It depends on openssl-3. The helper's .NET 9 runtime loads libssl itself
+#   and tries .so.3, 1.1, 1.0.2, 1.0.0 and 10, never .so.4, and aborts with
+#   "No usable version of libssl was found" when none loads. `openssl` is 4.x
+#   now, so nothing else guarantees a libssl.so.3: on 13/11/2026 openssl-3
+#   was on this machine only as a dependency of nodejs-lts-jod.
+# - resources/package-type is removed, which switches BSManager's self-update
+#   off. electron-updater reads that file to choose how to update the app. The
+#   .rpm ships "rpm", and with it an update accepted in the app (it checks from
+#   the title bar and from Settings) downloads the next upstream .rpm and
+#   installs it with zypper, dnf, yum or `rpm -Uvh --replacefiles --nodeps`,
+#   whichever exists, behind pacman's back. Without the file electron-updater
+#   falls back to its AppImage updater, which reports itself inactive unless
+#   $APPIMAGE is set, and BSManager's check (AutoUpdaterService) reads that as
+#   "no update". New versions come from bumping this file.
+# - /usr/bin/bs-manager exists. Upstream creates that link in the .rpm's
+#   post-install script, which a repack never runs.
+# - chrome-sandbox stays 0755. Upstream's .rpm script makes it setuid root
+#   only where unprivileged user namespaces do not work; here they do
+#   (kernel.unprivileged_userns_clone=1, as on Arch's kernels), and Chromium
+#   then uses the namespace sandbox. On a kernel without them the app refuses
+#   to start and says so: chmod 4755 that file there.
+# - depends is what the binaries link against, load and run, not the .deb's
+#   list.
+#
+# The .rpm and the .deb hold the same /opt/BSManager file for file, apart from
+# that package-type marker. The .rpm is used because it is the one upstream
+# publishes a hash for (latest-linux.yml, sha512), and it is the smaller.
+#
+# TO BUMP: update pkgver and the sha256sum, and compare the new file with the
+# sha512 in latest-linux.yml from the same release:
+#   openssl dgst -sha512 -binary bs-manager-bin-<ver>.rpm | base64 -w0
+# Then let check() run, and re-read this header: once upstream releases
+# bs-downloader, _helper below changes, and so do what it prints and which
+# libssl it wants.
+
+pkgname=bs-manager-bin
+pkgver=1.6.0
+pkgrel=1
+pkgdesc="Beat Saber version, map and mod manager (prebuilt, with a working version download)"
+arch=('x86_64')
+url="https://github.com/Zagrios/bs-manager"
+# BSManager itself (the "MIT" in the .rpm's own tag is electron-builder's
+# default, not upstream's LICENSE). The bundled DepotDownloader fork is
+# GPL-2.0-only; Electron and Chromium ship their notices in /opt/BSManager,
+# linked from the licence directory below.
+license=('GPL-3.0-only')
+depends=(
+	# linked
+	'alsa-lib' 'at-spi2-core' 'cairo' 'dbus' 'expat' 'glib2' 'glibc' 'gtk3'
+	'libcups' 'libgcc' 'libstdc++' 'libx11' 'libxcb' 'libxcomposite'
+	'libxdamage' 'libxext' 'libxfixes' 'libxkbcommon' 'libxrandr' 'mesa'
+	'nspr' 'nss' 'pango' 'systemd-libs'
+	# loaded at run time: notifications, the keyring, and TLS for
+	# DepotDownloader (see the header; it is built with invariant
+	# globalization, so it needs no ICU)
+	'libnotify' 'libsecret' 'openssl-3'
+	# run by the app: links, its shell commands, finding running processes
+	'xdg-utils' 'bash' 'procps-ng' 'grep'
+	'hicolor-icon-theme'
+)
+optdepends=('steam: to launch Beat Saber (downloading a version does not need it)')
+provides=('bs-manager')
+conflicts=('bs-manager' 'bs-manager-git')
+options=('!strip')
+source=("$pkgname-$pkgver.rpm::$url/releases/download/v$pkgver/bs-manager-$pkgver.$CARCH.rpm")
+noextract=("$pkgname-$pkgver.rpm")
+sha256sums=('f701450bca18084904cdee2aa4abc9d8f58787375272b8eab6d83040ac30d0b2')
+
+_helper=opt/BSManager/resources/assets/scripts/DepotDownloader
+
+check() {
+	# The helper exactly as upstream shipped it, run without arguments: it
+	# prints its version and usage and exits 0. No network, and a HOME of its
+	# own in case a later version writes there.
+	rm -rf "$srcdir/check"
+	install -dm755 "$srcdir/check/home"
+	bsdtar -xf "$srcdir/$pkgname-$pkgver.rpm" -C "$srcdir/check" "./$_helper"
+	HOME="$srcdir/check/home" "$srcdir/check/$_helper" > "$srcdir/check/out.txt"
+	grep -q '^DepotDownloader v' "$srcdir/check/out.txt"
+}
+
+package() {
+	# An .rpm is a header followed by a cpio archive, which bsdtar reads as
+	# one file. Unpacked straight into $pkgdir: 410 MB do not need copying
+	# twice.
+	bsdtar -xf "$srcdir/$pkgname-$pkgver.rpm" -C "$pkgdir"
+
+	# rpm's build-id links into /opt, of no use to pacman. rmdir, not rm -r:
+	# if a later release puts anything else in /usr/lib, this fails loudly.
+	rm -r "$pkgdir/usr/lib/.build-id"
+	rmdir "$pkgdir/usr/lib"
+
+	# Self-update off (see the header).
+	rm "$pkgdir/opt/BSManager/resources/package-type"
+
+	install -dm755 "$pkgdir/usr/bin"
+	ln -s /opt/BSManager/bs-manager "$pkgdir/usr/bin/bs-manager"
+
+	install -dm755 "$pkgdir/usr/share/licenses/$pkgname"
+	ln -s /opt/BSManager/LICENSE.electron.txt \
+		"$pkgdir/usr/share/licenses/$pkgname/LICENSE.electron.txt"
+	ln -s /opt/BSManager/LICENSES.chromium.html \
+		"$pkgdir/usr/share/licenses/$pkgname/LICENSES.chromium.html"
+}
