@@ -67,11 +67,15 @@
 #
 # WHAT ELSE DIFFERS FROM THE AUR PACKAGE
 #
-# - It depends on openssl-3. The helper's .NET 9 runtime loads libssl itself
-#   and tries .so.3, 1.1, 1.0.2, 1.0.0 and 10, never .so.4, and aborts with
-#   "No usable version of libssl was found" when none loads. `openssl` is 4.x
-#   now, so nothing else guarantees a libssl.so.3: on 13/11/2026 openssl-3
-#   was on this machine only as a dependency of nodejs-lts-jod.
+# - It depends on libssl.so=3-64, the OpenSSL 3 library. The helper's .NET 9
+#   runtime loads libssl itself and tries .so.3, 1.1, 1.0.2, 1.0.0 and 10,
+#   never .so.4, and aborts with "No usable version of libssl was found" when
+#   none loads. Here `openssl` is 4.x, so nothing else guarantees a
+#   libssl.so.3: on 13/11/2026 openssl-3 was on this machine only as a
+#   dependency of nodejs-lts-jod. The dependency names the library, not the
+#   package, because which package ships it differs: openssl-3 where `openssl`
+#   is 4.x, plain `openssl` where it is still 3.x (and there is no openssl-3
+#   package there at all, which is what pkgrel 1 tripped over).
 # - /usr/bin/bs-manager exists. Upstream creates that link in the .rpm's
 #   post-install script, which a repack never runs.
 # - depends is what the binaries link against, load and run, not the .rpm's
@@ -111,7 +115,7 @@
 
 pkgname=bs-manager-bin
 pkgver=1.6.0
-pkgrel=1
+pkgrel=2
 pkgdesc="Beat Saber version, map and mod manager (prebuilt, with a working version download)"
 arch=('x86_64')
 url="https://github.com/Zagrios/bs-manager"
@@ -129,9 +133,9 @@ depends=(
 	'libxdamage' 'libxext' 'libxfixes' 'libxkbcommon' 'libxrandr' 'mesa'
 	'nspr' 'nss' 'pango' 'systemd-libs'
 	# loaded at run time: notifications, the keyring, and TLS for
-	# DepotDownloader (see the header; it is built with invariant
-	# globalization, so it needs no ICU)
-	'libnotify' 'libsecret' 'openssl-3'
+	# DepotDownloader (OpenSSL 3 by soname, see the header; it is built with
+	# invariant globalization, so it needs no ICU)
+	'libnotify' 'libsecret' 'libssl.so=3-64'
 	# run by the app: links, its shell commands, finding running processes
 	'xdg-utils' 'bash' 'procps-ng' 'grep'
 	'hicolor-icon-theme'
