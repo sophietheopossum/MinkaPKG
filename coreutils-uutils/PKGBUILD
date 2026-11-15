@@ -1,0 +1,83 @@
+# Maintainer: Sophie <goldsnakeking@gmail.com>
+
+# uutils as the system coreutils.
+#
+# Arch's own uutils-coreutils (extra) installs every command with a uu- prefix
+# (uu-ls, uu-cp, ...) so that it can sit next to GNU coreutils. This package
+# makes those the real thing: it provides and conflicts with coreutils, and
+# puts the GNU command names in /usr/bin as links to the uu- ones. The
+# programs themselves stay Arch's package, so they update with the repo; this
+# one only has to change if GNU coreutils gains or drops a command.
+#
+# It replaces coreutils-hybrid (GNU 9.4 mixed with uutils 0.0.28), which was
+# built locally on 8/1/2025, has since been deleted from the AUR, and could not
+# update any more.
+#
+# HOW IT WORKS. Every uu-* file is a hard link to one multicall binary, which
+# decides which command to be from the name it was started as. /usr/bin/ls is
+# a link to uu-ls, so it is started as "ls" and runs ls. (Checked with 0.12.0:
+# all 102 names below answer --version as "(uutils coreutils) 0.12.0", except
+# test, which, like GNU's, prints nothing for --version.)
+#
+# WHAT IS LINKED. Exactly the commands GNU coreutils 9.12 installs in /usr/bin
+# (the list below), no more: uutils also builds arch, hostname, kill, more and
+# uptime, and on Arch those names belong to util-linux, inetutils and
+# procps-ng. Man pages are linked the same way (uutils has none for "["). Shell
+# completions are not: fish ships its own for these commands, and uutils'
+# generated ones complete the uu- names.
+#
+# TO BUMP: nothing to do for a new uutils-coreutils release. When GNU
+# coreutils changes its command list (compare
+# https://archlinux.org/packages/core/x86_64/coreutils/ "Package Contents"),
+# update _commands; package() fails if uutils lacks one of them.
+
+pkgname=coreutils-uutils
+pkgver=0.12.0
+pkgrel=1
+pkgdesc="uutils as the system coreutils: the GNU command names, linked to Arch's uutils-coreutils"
+arch=('any')
+url="https://github.com/uutils/coreutils"
+license=('MIT')
+depends=("uutils-coreutils>=$pkgver")
+makedepends=("uutils-coreutils>=$pkgver")
+provides=('coreutils')
+conflicts=('coreutils')
+replaces=('coreutils-hybrid')
+
+# /usr/bin of GNU coreutils 9.12-3 (core), 102 commands.
+_commands=(
+	'[' b2sum base32 base64 basename basenc cat chgrp chmod chown chroot cksum
+	comm cp csplit cut date dd df dir dircolors dirname du echo env expand expr
+	factor false fmt fold groups head hostid id install join link ln logname ls
+	md5sum mkdir mkfifo mknod mktemp mv nice nl nohup nproc numfmt od paste
+	pathchk pinky pr printenv printf ptx pwd readlink realpath rm rmdir seq
+	sha1sum sha224sum sha256sum sha384sum sha512sum shred shuf sleep sort split
+	stat stdbuf stty sum sync tac tail tee test timeout touch tr true truncate
+	tsort tty uname unexpand uniq unlink users vdir wc who whoami yes
+)
+
+check() {
+	# Each name must start the right command through the multicall binary.
+	local cmd out
+	for cmd in "${_commands[@]}"; do
+		[[ -x /usr/bin/uu-$cmd ]] || { error "uutils-coreutils has no uu-$cmd"; return 1; }
+		[[ $cmd = test ]] && continue
+		mkdir -p "$srcdir/check"
+		ln -sfn "/usr/bin/uu-$cmd" "$srcdir/check/$cmd"
+		out=$("$srcdir/check/$cmd" --version 2>&1 < /dev/null | head -n1)
+		[[ $out = *"(uutils coreutils)"* ]] || { error "$cmd --version printed: $out"; return 1; }
+	done
+	[[ $("$srcdir/check/[" 1 = 1 ] && echo yes) = yes ]] || { error '[ 1 = 1 ] failed'; return 1; }
+}
+
+package() {
+	install -d "$pkgdir/usr/bin" "$pkgdir/usr/share/man/man1"
+	local cmd
+	for cmd in "${_commands[@]}"; do
+		[[ -x /usr/bin/uu-$cmd ]] || { error "uutils-coreutils has no uu-$cmd"; return 1; }
+		ln -s "uu-$cmd" "$pkgdir/usr/bin/$cmd"
+		if [[ -e /usr/share/man/man1/uu-$cmd.1.gz ]]; then
+			ln -s "uu-$cmd.1.gz" "$pkgdir/usr/share/man/man1/$cmd.1.gz"
+		fi
+	done
+}
