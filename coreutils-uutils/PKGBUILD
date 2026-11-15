@@ -7,29 +7,76 @@
 # makes those the real thing: it provides and conflicts with coreutils, and
 # puts the GNU command names in /usr/bin as links to the uu- ones. The
 # programs themselves stay Arch's package, so they update with the repo; this
-# one only has to change if GNU coreutils gains or drops a command.
+# one only has to change if the command list changes.
 #
 # It replaces coreutils-hybrid (GNU 9.4 mixed with uutils 0.0.28), which was
 # built locally on 8/1/2025, has since been deleted from the AUR, and could not
 # update any more.
 #
+# WHY NOT CachyOS's coreutils-uutils: same idea, but built 13/9/2025 against
+# uutils 0.2.2 and not touched since. 11 of its 114 links (b3sum, chcon,
+# runcon, hashsum, sha3*sum, shake*sum) name utilities uutils 0.12 no longer
+# has, and its "provides b3sum" blocks the real b3sum.
+#
+# SAME NAME AS CachyOS's, ON PURPOSE. [cachyos] sits above [minka] in
+# pacman.conf, so plain pacman and pamac see CachyOS's 0.2.2 under this name:
+# install this one as `pacman -S minka/coreutils-uutils`, and expect plain
+# -Syu to warn that the local copy is newer than cachyos's (harmless). Updates
+# come through MinkaSyu, whose cross-repository scan offers a strictly newer
+# build from a lower-ranked repo (src/check.rs, merge_updates). If CachyOS
+# ever ships a higher version, both pacman and MinkaSyu will move to theirs:
+# check its links against the uutils it depends on before accepting.
+#
 # HOW IT WORKS. Every uu-* file is a hard link to one multicall binary, which
 # decides which command to be from the name it was started as. /usr/bin/ls is
-# a link to uu-ls, so it is started as "ls" and runs ls. (Checked with 0.12.0:
-# all 102 names below answer --version as "(uutils coreutils) 0.12.0", except
-# test, which, like GNU's, prints nothing for --version.)
+# a link to uu-ls, so it is started as "ls" and runs ls. Checked with 0.12.0:
+# all 103 names below answer --version as "(uutils coreutils) 0.12.0", except
+# test, which, like GNU's, prints nothing for --version.
 #
-# WHAT IS LINKED. Exactly the commands GNU coreutils 9.12 installs in /usr/bin
-# (the list below), no more: uutils also builds arch, hostname, kill, more and
-# uptime, and on Arch those names belong to util-linux, inetutils and
-# procps-ng. Man pages are linked the same way (uutils has none for "["). Shell
-# completions are not: fish ships its own for these commands, and uutils'
-# generated ones complete the uu- names.
+# WHAT IS LINKED. The 102 commands GNU coreutils 9.12 installs in /usr/bin,
+# plus arch (coreutils-hybrid had it; GNU's Arch build leaves it out and no
+# other package owns it). Not hostname, kill, more or uptime: inetutils,
+# util-linux and procps-ng own those names. Gone compared with
+# coreutils-hybrid: chcon and runcon (SELinux only) and hashsum (no longer in
+# uutils). Man pages are linked the same way (uutils has none for "[").
 #
-# TO BUMP: nothing to do for a new uutils-coreutils release. When GNU
-# coreutils changes its command list (compare
-# https://archlinux.org/packages/core/x86_64/coreutils/ "Package Contents"),
-# update _commands; package() fails if uutils lacks one of them.
+# TESTED 15/11/2026 against GNU 9.12, side by side. mkinitcpio builds the same
+# initramfs: every file's contents, modes and order are identical; only 148
+# early-cpio directories are 0755 instead of 0700, which still boots. makepkg
+# and repo-add give the same packages and database. Known uutils 0.12
+# differences that can bite, with what to do instead:
+#   cp -rL / cp -aL   a symlink to a directory becomes a 0777 world-writable
+#                     directory. Add --no-preserve=mode, or use rsync -rL.
+#                     (minka-syu's PKGBUILD is safe only because of its
+#                     chmod 755 line after the cp -rL.)
+#   cp -l / cp -al    chmods the SOURCE files to mode & ~umask. Make hard
+#                     links with ln, snapshot trees with rsync --link-dest.
+#   mv across filesystems (/tmp, /boot, the ext4 cache mounts, other
+#                     drives) drops mtimes, widens 0700 dirs, splits hard
+#                     links, fills sparse files. Use rsync -aHAXS
+#                     --remove-source-files. (coreutils-hybrid's mv already
+#                     did this.)
+#   readlink A B      stops at the first operand that fails, so with xargs the
+#                     rest of the batch is dropped: rebuild-detector's
+#                     checkrebuild misses files. Fixed upstream after 0.12
+#                     (8f9f3d3156); coreutils-hybrid's readlink did it too.
+#   sync FILE         calls sync(2), so a write error on FILE is not reported.
+#   install -t DIR    with DIR missing creates a FILE named DIR.
+#   touch -d 'Y-M-D H:M:S' (no zone) uses today's UTC offset: 1 h off across
+#                     a clock change.
+#   sha256sum -c      skips lines with escaped names (\ or newline) and still
+#                     exits 0.
+#   date %x %c        ignore LC_TIME: under en_GB, %x is month/day.
+#   sort, ls          collation tie-breaks differ from glibc's.
+# Also: the multicall binary links OpenSSL and libsystemd, so a broken libssl
+# takes down rm, cp and mv too. Never partial-upgrade; after an OpenSSL
+# soname bump, `ldd /usr/bin/uu-rm | grep 'not found'` must print nothing.
+# /usr/lib/initcpio/busybox has rm, cp, mv, ln, ls as a last resort.
+#
+# TO BUMP: nothing for a new uutils-coreutils release, though re-read the
+# list above against its changelog. When GNU coreutils changes its command
+# list (https://archlinux.org/packages/core/x86_64/coreutils/ "Package
+# Contents"), update _commands; check() and package() fail if uutils lacks one.
 
 pkgname=coreutils-uutils
 pkgver=0.12.0
@@ -44,25 +91,25 @@ provides=('coreutils')
 conflicts=('coreutils')
 replaces=('coreutils-hybrid')
 
-# /usr/bin of GNU coreutils 9.12-3 (core), 102 commands.
+# /usr/bin of GNU coreutils 9.12-3 (core), 102 commands, plus arch.
 _commands=(
-	'[' b2sum base32 base64 basename basenc cat chgrp chmod chown chroot cksum
-	comm cp csplit cut date dd df dir dircolors dirname du echo env expand expr
-	factor false fmt fold groups head hostid id install join link ln logname ls
-	md5sum mkdir mkfifo mknod mktemp mv nice nl nohup nproc numfmt od paste
-	pathchk pinky pr printenv printf ptx pwd readlink realpath rm rmdir seq
-	sha1sum sha224sum sha256sum sha384sum sha512sum shred shuf sleep sort split
-	stat stdbuf stty sum sync tac tail tee test timeout touch tr true truncate
-	tsort tty uname unexpand uniq unlink users vdir wc who whoami yes
+	'[' arch b2sum base32 base64 basename basenc cat chgrp chmod chown chroot
+	cksum comm cp csplit cut date dd df dir dircolors dirname du echo env expand
+	expr factor false fmt fold groups head hostid id install join link ln
+	logname ls md5sum mkdir mkfifo mknod mktemp mv nice nl nohup nproc numfmt od
+	paste pathchk pinky pr printenv printf ptx pwd readlink realpath rm rmdir
+	seq sha1sum sha224sum sha256sum sha384sum sha512sum shred shuf sleep sort
+	split stat stdbuf stty sum sync tac tail tee test timeout touch tr true
+	truncate tsort tty uname unexpand uniq unlink users vdir wc who whoami yes
 )
 
 check() {
 	# Each name must start the right command through the multicall binary.
 	local cmd out
+	mkdir -p "$srcdir/check"
 	for cmd in "${_commands[@]}"; do
 		[[ -x /usr/bin/uu-$cmd ]] || { error "uutils-coreutils has no uu-$cmd"; return 1; }
 		[[ $cmd = test ]] && continue
-		mkdir -p "$srcdir/check"
 		ln -sfn "/usr/bin/uu-$cmd" "$srcdir/check/$cmd"
 		out=$("$srcdir/check/$cmd" --version 2>&1 < /dev/null | head -n1)
 		[[ $out = *"(uutils coreutils)"* ]] || { error "$cmd --version printed: $out"; return 1; }
