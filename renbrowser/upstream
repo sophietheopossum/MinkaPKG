@@ -1,0 +1,5 @@
+kind=github-tag
+repo=Quad4-Software/Ren-Browser
+tag_regex=^v[0-9]+(\.[0-9]+)*$
+auto=no
+note=also re-check the pinned _micronver and _wasmexecver against upstream's fetch script and go version

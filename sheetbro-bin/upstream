@@ -1,0 +1,4 @@
+kind=github-release
+repo=jetorbitdev/sheetbro
+auto=no
+note=re-check the .deb's control Depends and ldd of usr/bin/spritsit (PKGBUILD header)

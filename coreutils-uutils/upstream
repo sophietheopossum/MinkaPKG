@@ -1,0 +1,5 @@
+# Only links to Arch's uutils-coreutils, whose version this pkgver records.
+kind=watch-package
+package=uutils-coreutils
+auto=no
+note=re-check the known differences in the PKGBUILD header against the new uutils release, then set pkgver to it

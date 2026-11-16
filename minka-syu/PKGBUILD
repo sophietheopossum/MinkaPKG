@@ -1,20 +1,25 @@
 # Maintainer: Sophie <goldsnakeking@gmail.com>
 
 pkgname=minka-syu
-pkgver=0.5.0
+pkgver=0.6.0
 pkgrel=1
 pkgdesc="Update notifier, browser & installed manager: safe repo+AUR checks with provenance; applying is paru's job"
 arch=('x86_64')
 license=('MIT')
 # The core only READS through pacman against a throwaway DB root; applying
-# is delegated to paru in a terminal, and neither is linked. quickshell
-# runs the UI. paru/rio/libnotify are runtime tools the core shells out
-# to: paru for AUR checks and apply, rio as the default terminal for
-# apply (MINKA_SYU_TERMINAL overrides), libnotify for --notify.
-depends=('glibc' 'libgcc' 'pacman' 'quickshell' 'archlinux-appstream-data')
-makedepends=('cargo')
+# is delegated to paru in a terminal, and neither is linked. The window is
+# minka-syu-gui (AntiWebUI: Wayland + Vulkan through wgpu, fonts through
+# fontconfig); quickshell runs the QML window kept as the fallback
+# (MINKA_SYU_FRONTEND=quickshell). paru/rio/libnotify are runtime tools
+# the core shells out to: paru for AUR checks and apply, rio as the
+# default terminal for apply (MINKA_SYU_TERMINAL overrides), libnotify
+# for --notify. curl fetches AppStream screenshots for the detail view.
+depends=('glibc' 'libgcc' 'pacman' 'archlinux-appstream-data'
+         'wayland' 'libxkbcommon' 'fontconfig' 'vulkan-icd-loader' 'curl')
+makedepends=('cargo' 'git')
 optdepends=('paru: AUR update checks and applying updates'
             'rio: default terminal for applying updates'
+            'quickshell: the QML window (fallback front end)'
             'libnotify: desktop notifications from the check timer'
             'appstream: package detail view (name/summary/screenshots)')
 
@@ -25,21 +30,48 @@ optdepends=('paru: AUR update checks and applying updates'
 _minkade="$(realpath "$startdir/../..")"
 _src="$_minkade/MinkaSyu"
 
+# The version is the release, as in Arch and CachyOS: the newest numeric git
+# tag of the MinkaSyu checkout (0.6.0) or its COMMITTED Cargo.toml version,
+# whichever is higher. Rebuilds of newer commits on the same release raise
+# pkgrel (0.6.0-1, 0.6.0-2, ...): with a minka-syu/upstream file saying
+# kind=local and checkout=../../MinkaSyu, `minkarepo publish|update` does
+# that and records the commit built from in _commit=; without one, raise
+# pkgrel by hand. Uncommitted changes are built but not tracked, so commit
+# first (GitKraken does).
+_commit=
+pkgver() {
+	cd "$_src"
+	local cargo tag
+	cargo=$(git show HEAD:Cargo.toml | sed -n 's/^version = "\(.*\)"$/\1/p' | head -n1)
+	tag=$(git describe --tags --abbrev=0 --match '[0-9]*' 2>/dev/null) || tag=
+	if [ -n "$(git status --porcelain -- . 2>/dev/null)" ]; then
+		echo "warning: $_src has uncommitted changes; they are built but not in the version" >&2
+	fi
+	if [ -n "$tag" ] && [ "$(vercmp "$tag" "$cargo")" -gt 0 ]; then
+		printf '%s\n' "$tag"
+	else
+		printf '%s\n' "$cargo"
+	fi
+}
+
 build() {
 	cd "$_src"
 	export RUSTUP_TOOLCHAIN=stable
 	cargo build --frozen --release
+	cargo build --frozen --release --manifest-path gui/Cargo.toml
 }
 
 check() {
 	cd "$_src"
 	export RUSTUP_TOOLCHAIN=stable
 	cargo test --frozen --release
+	cargo test --frozen --release --manifest-path gui/Cargo.toml
 }
 
 package() {
 	cd "$_src"
 	install -Dm755 target/release/minka-syu "$pkgdir/usr/bin/minka-syu"
+	install -Dm755 gui/target/release/minka-syu-gui "$pkgdir/usr/bin/minka-syu-gui"
 
 	# UI. cp -rL dereferences the Proustite/MinkaLink symlinks: the
 	# installed tree must be self-contained, since the links point at

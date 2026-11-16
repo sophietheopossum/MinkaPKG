@@ -1,0 +1,7 @@
+# The PKGBUILD's pkgver() gives the release: the MinkaSyu checkout's newest
+# numeric tag or its committed Cargo.toml version, whichever is higher.
+# publish/update raise pkgrel for each newer commit on that release and
+# record the commit built from in the PKGBUILD's _commit=.
+kind=local
+checkout=../../MinkaSyu
+auto=yes

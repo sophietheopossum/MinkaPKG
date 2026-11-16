@@ -1,0 +1,5 @@
+kind=git-commit
+repo=fr33n0w/rBrowser
+# a new commit raises pkgrel; pkgver stays the date it was packaged at
+auto=no
+note=fr33n0w/rBrowser is gone (404 since 11/2026); its successor fr33n0w/rBrowser2 is a rewrite (tags v2.x, epoch needed, new depends), so moving is a repackage

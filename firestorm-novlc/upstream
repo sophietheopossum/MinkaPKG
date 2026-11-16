@@ -1,0 +1,6 @@
+kind=github-tag
+repo=FirestormViewer/phoenix-firestorm
+tag_regex=^Firestorm_Release_[0-9.]+$
+version_sed=s/^Firestorm_Release_//
+auto=no
+note=multi-hour build

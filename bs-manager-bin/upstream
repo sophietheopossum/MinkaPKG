@@ -1,0 +1,4 @@
+kind=github-release
+repo=Zagrios/bs-manager
+auto=no
+note=follow TO BUMP in the PKGBUILD header (sha512 against latest-linux.yml, the strip hand check, the bundled helper)

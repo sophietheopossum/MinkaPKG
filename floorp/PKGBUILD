@@ -134,30 +134,36 @@ source=(
   "$_pkgname-runtime-${_runtime_commit::7}.$_pkgext"::"https://github.com/Floorp-Projects/Floorp-Runtime/archive/$_runtime_commit.$_pkgext"
   "$_pkgsrc_core"::"git+https://github.com/Floorp-Projects/Floorp-core.git"
   "$_pkgname.desktop"
+  # 0002 only drops MOZ_APP_VENDOR from the branding's configure.sh (a confvars
+  # assignment configure rejects). It must NOT touch browser/moz.configure: Floorp's
+  # own upstream/moz.configure.patch owns that file and brings the "Ablaze" vendor in
+  # through .github/assets/config/moz.configure.
   '0002-vendor-must-be-implied-not-confvars.patch'
+  # Mozilla Bug 2062135, backported unchanged from Firefox 160: round both
+  # viewport source edges before deriving width/height, so a fractional-scale
+  # source rectangle cannot extend past its buffer and kill the client with a
+  # wp_viewport protocol error.
   'firefox-2062135-round-viewport-source-edges.patch'
 )
+# No comments inside sha256sums=(): `minkarepo update floorp` runs updpkgsums,
+# which rewrites that array whole.
 sha256sums=(
   '572358682a80e0d4da3d785a5b7e215de67af790b66ee3e0a1c7182ee984598d'
   'SKIP'
   'SKIP'
   '8b38d000950cddd5fa0e1598540590af21f1aae1d30212fb11197c8526662604'
-  # 0002 only drops MOZ_APP_VENDOR from the branding's configure.sh (a confvars
-  # assignment configure rejects). It must NOT touch browser/moz.configure: Floorp's
-  # own upstream/moz.configure.patch owns that file and brings the "Ablaze" vendor in
-  # through .github/assets/config/moz.configure.
   '6319b6209509c2fb98f302fe187abeeab4783c198cb2941f2bcc7d851e84c973'
-  # Mozilla Bug 2062135, backported unchanged from Firefox 160: round both
-  # viewport source edges before deriving width/height, so a fractional-scale
-  # source rectangle cannot extend past its buffer and kill the client with a
-  # wp_viewport protocol error.
   '14342c2d760cc6fb09d313361985770aef2e3ba898cfc8f54d36a92073faeb71'
 )
 if [[ "${_build_local_repos::1}" == "t" ]]; then
   source[0]="$_pkgsrc"::"git+file://$_local_repos_root/Floorp#$_local_floorp_ref"
   source[1]="$_pkgsrc_runtime"::"git+file://$_local_repos_root/Floorp-Runtime#commit=$_runtime_commit"
   source[2]="$_pkgsrc_core"::"git+file://$_local_repos_root/Floorp-core#$_local_core_ref"
+  # Every git source: once updpkgsums has run, sums[1] is the Runtime
+  # TARBALL's hash, which a git+file checkout can never match.
   sha256sums[0]='SKIP'
+  sha256sums[1]='SKIP'
+  sha256sums[2]='SKIP'
 fi
 # There is no 0003 any more: it gave idle-memory-reclaim and tab-sleep-exclusion
 # `declare` fields so subclass initializers stopped undoing init(), and 12.21.0

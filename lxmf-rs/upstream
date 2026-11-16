@@ -1,0 +1,6 @@
+kind=github-tag
+repo=FreeTAKTeam/LXMF-rs
+# release tags only (upstream also tags -rc.N)
+tag_regex=^v[0-9]+(\.[0-9]+)*$
+auto=yes
+note=depends are read off the binaries with objdump -p; re-check them if the build links something new

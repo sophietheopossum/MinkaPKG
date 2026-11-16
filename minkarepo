@@ -11,6 +11,17 @@
 #   minkarepo add     <pkg>   add an already-built package to the repo
 #   minkarepo list            what the repo currently holds
 #   minkarepo remove  <name>  drop a package from the repo and delete its file
+#   minkarepo check [--tsv] [<pkg>...]
+#                             compare each package with its upstream (the
+#                             `upstream` file in its dir) and with the repo;
+#                             --tsv is the same as tab-separated lines
+#   minkarepo update <pkg>... bump to the newest upstream version, refresh the
+#                             checksums, then publish
+#   minkarepo update --all    the same for every package whose `upstream` says
+#                             auto=yes; the others are only reported
+#   minkarepo track <pkg>... yes|no
+#                             follow a package or not (no: check lists it as
+#                             untracked, update --all leaves it alone)
 #
 # <pkg> is a directory name in this repo, e.g. `lxmf-rs`. <name> in `remove`
 # is a pacman package NAME, which is not always the directory name.
@@ -39,7 +50,7 @@ self=$(cd "$(dirname "$prog")" && pwd)
 die() { echo "minkarepo: $*" >&2; exit 1; }
 
 usage() {
-	sed -n '2,16p' "$prog" | sed 's/^# \{0,1\}//' >&2
+	sed -n '2,/^# WHY A LOCAL REPO/p' "$prog" | sed '$d' | sed 's/^# \{0,1\}//' >&2
 	exit 1
 }
 
@@ -85,6 +96,7 @@ do_init() {
 
 do_build() {
 	need_pkgdir "${1:-}"
+	refresh_pkgver
 	echo "==> building $1"
 	mem_high=${MINKAREPO_MEMORY_HIGH:-8G}
 	mem_max=${MINKAREPO_MEMORY_MAX:-10G}
@@ -141,6 +153,16 @@ up_to_date() {
 # is already built must not start another one.
 do_publish() {
 	need_pkgdir "${1:-}"
+	refresh_pkgver
+	# Never publish a version below the one in the repo: for kind=local that
+	# means rewritten history or an older checkout, and pacman would not take
+	# it without -Suu anyway.
+	if load_pkg "$1"; then
+		pub=$(published "$(printf '%s\n' "$names" | head -n 1)")
+		if [ -n "$pub" ] && [ "$(vercmp "$cur_full" "$pub")" -lt 0 ] && [ -z "${MINKAREPO_ALLOW_DOWNGRADE:-}" ]; then
+			die "$1: $cur_full is OLDER than the published $pub (rewritten history, or an older checkout?). Make another commit or bump the version; MINKAREPO_ALLOW_DOWNGRADE=1 publishes it anyway"
+		fi
+	fi
 	if up_to_date; then
 		echo "==> $1 is already built for its current version, skipping makepkg"
 		echo "    (to rebuild anyway: minkarepo build $1, then minkarepo add $1)"
@@ -210,6 +232,508 @@ do_remove() {
 	echo 'Run `sudo pacman -Sy` to refresh.'
 }
 
+# ---- upstream: check and update ---------------------------------------------
+#
+# Each package directory may hold an `upstream` file: key=value lines, data that
+# is read, never sourced. It says where the newest version comes from:
+#   kind=github-release repo=OWNER/NAME     the newest release (not prereleases)
+#   kind=github-tag     repo=... [tag_regex=ERE]
+#                                           the highest matching tag, vercmp order
+#                                           (default ^v?[0-9]+(\.[0-9]+)*$)
+#   kind=git-commit     repo=... [branch=B] the branch's newest commit, pinned in
+#                                           the PKGBUILD's _commit= line. pkgver
+#                                           stays and pkgrel goes up, as Arch
+#                                           and CachyOS do for a rebuild; a new
+#                                           upstream VERSION is a hand bump
+#   kind=local          checkout=DIR        pkgver() gives the release version
+#                                           of a checkout outside $srcdir (DIR
+#                                           is relative to the package dir).
+#                                           A new release resets pkgrel; a new
+#                                           commit on the same release raises
+#                                           pkgrel. The commit a build came from
+#                                           is kept in _commit=. Run before
+#                                           every build/publish/update.
+#   kind=follows        package=DIR         another package dir's pkgver
+#   kind=watch-package  package=NAME        a sync-repo package's version; only
+#                                           reported, the bump is by hand
+#   version_sed=SED     tag -> pkgver (default s/^v//)
+#   pkgrel_new=N        pkgrel after a pkgver bump (default 1)
+# A package dir without an `upstream` file is not tracked.
+#   auto=yes|no         whether `update --all` may bump and publish it unasked
+#   track=yes|no        no: not followed at all (check lists it as untracked,
+#                       update --all leaves it); set with `minkarepo track`
+#   note=TEXT           what to re-check by hand; shown with every update
+# GitHub is read with `git ls-remote` where it can be (no API rate limit), and
+# through the API for a latest release ($GITHUB_TOKEN is used if set). git runs with credential helpers and prompts off, so a deleted
+# or renamed repo fails instead of asking the desktop keyring for a login.
+
+all_pkgs() {
+	for f in "$self"/*/PKGBUILD; do
+		[ -f "$f" ] && basename "$(dirname "$f")"
+	done
+}
+
+# A value from the package's `upstream` file (the last one wins).
+up_get() {
+	[ -f "$pkgdir/upstream" ] || return 0
+	sed -n "s/^$1=//p" "$pkgdir/upstream" | tail -n 1
+}
+
+# A version makepkg accepts as pkgver (its check_pkgver), and so one that is
+# safe in the sed of set_field.
+valid_pkgver() {
+	case $1 in
+	'' | *[!A-Za-z0-9._+~]*) return 1 ;;
+	esac
+}
+
+# The pkgver() a PKGBUILD defines, run the way makepkg would (in a subshell, with
+# startdir and srcdir set), without makepkg rewriting anything.
+local_pkgver() {
+	(cd "$pkgdir" && startdir=$pkgdir srcdir=$pkgdir/src bash -c 'set -e; . ./PKGBUILD; pkgver')
+}
+
+# Rewrite the single `<var>=` line of the PKGBUILD.
+set_field() {
+	n=$(grep -c "^$1=" "$pkgdir/PKGBUILD") || true
+	[ "$n" = 1 ] || die "$(basename "$pkgdir"): expected one '$1=' line in the PKGBUILD, found $n"
+	sed -i "s|^$1=.*|$1=$2|" "$pkgdir/PKGBUILD" || die "$(basename "$pkgdir"): could not write $1"
+}
+
+# The commit a kind=local checkout is at, or nothing without checkout=.
+local_head() {
+	co=$(up_get checkout)
+	[ -n "$co" ] || return 0
+	git -C "$pkgdir/$co" rev-parse HEAD 2>/dev/null || die "$(basename "$pkgdir"): checkout=$co is not a git checkout"
+}
+
+# For kind=local: write pkgver()'s release version, and the revision, so
+# --packagelist and the repo see the version a build makes. A new release
+# resets pkgrel to pkgrel_new; a new commit on the same release raises it
+# by one, Arch-style, and _commit= records the commit built from (an empty
+# _commit= is filled in without a bump). Other pkgver() functions read
+# sources makepkg has not fetched yet, so makepkg runs them itself.
+refresh_pkgver() {
+	grep -q '^pkgver()' "$pkgdir/PKGBUILD" || return 0
+	[ "$(up_get kind)" = local ] || return 0
+	name=$(basename "$pkgdir")
+	new=$(local_pkgver) || die "pkgver() failed for $name"
+	valid_pkgver "$new" || die "pkgver() of $name gave '$new', not a valid pkgver"
+	old=$(sed -n 's/^pkgver=//p' "$pkgdir/PKGBUILD" | head -n 1)
+	head=$(local_head)
+	built=$(pinned_commit)
+	if [ "$new" != "$old" ]; then
+		echo "==> $name: pkgver $old -> $new"
+		set_field pkgver "$new"
+		rel=$(up_get pkgrel_new)
+		set_field pkgrel "${rel:-1}"
+		[ -z "$head" ] || set_field _commit "$head"
+	elif [ -n "$head" ] && [ "$head" != "$built" ]; then
+		if [ -n "$built" ]; then
+			rel=$(sed -n 's/^pkgrel=//p' "$pkgdir/PKGBUILD" | head -n 1)
+			next=$(echo "$rel" | awk -F. '{ print $1 + 1 }')
+			echo "==> $name: new commit $(printf %.7s "$head"); pkgrel $rel -> $next"
+			set_field pkgrel "$next"
+		fi
+		set_field _commit "$head"
+	fi
+}
+
+# The PKGBUILD as makepkg reads it (pkgver() is not run): sets srcinfo, names,
+# cur_pkgver, cur_pkgrel and cur_full ([epoch:]pkgver-pkgrel). Returns 1, not
+# die, so one broken PKGBUILD does not stop a check or update of the others.
+load_pkg() {
+	need_pkgdir "$1"
+	srcinfo=$(cd "$pkgdir" && makepkg --printsrcinfo 2>/dev/null) || return 1
+	names=$(printf '%s\n' "$srcinfo" | sed -n 's/^pkgname = //p')
+	cur_pkgver=$(printf '%s\n' "$srcinfo" | sed -n 's/^[[:space:]]*pkgver = //p' | head -n 1)
+	cur_pkgrel=$(printf '%s\n' "$srcinfo" | sed -n 's/^[[:space:]]*pkgrel = //p' | head -n 1)
+	cur_epoch=$(printf '%s\n' "$srcinfo" | sed -n 's/^[[:space:]]*epoch = //p' | head -n 1)
+	cur_full=${cur_epoch:+$cur_epoch:}$cur_pkgver-$cur_pkgrel
+}
+
+# The version of package <name> in the repo database ([epoch:]pkgver-pkgrel),
+# or nothing. Entries are directories named name-pkgver-pkgrel/.
+published() {
+	[ -f "$REPO/$DB.db.tar.zst" ] || return 0
+	tar -tf "$REPO/$DB.db.tar.zst" 2>/dev/null | awk -F/ -v want="$1" '
+		NF == 2 && $2 == "" {
+			n = split($1, a, "-")
+			if (n < 3) next
+			name = a[1]
+			for (i = 2; i <= n - 2; i++) name = name "-" a[i]
+			if (name == want) print a[n - 1] "-" a[n]
+		}' | head -n 1
+}
+
+gh_api() {
+	if [ -n "${GITHUB_TOKEN:-}" ]; then
+		curl -fsSL --max-time 20 -A minkarepo -H 'Accept: application/vnd.github+json' \
+			-H "Authorization: Bearer $GITHUB_TOKEN" "https://api.github.com/$1"
+	else
+		curl -fsSL --max-time 20 -A minkarepo -H 'Accept: application/vnd.github+json' \
+			"https://api.github.com/$1"
+	fi
+}
+
+# git ls-remote that can only fail, never prompt.
+git_remote() {
+	GIT_TERMINAL_PROMPT=0 GIT_ASKPASS=/bin/false SSH_ASKPASS=/bin/false \
+		timeout 30 git -c credential.helper= -c core.askPass=/bin/false ls-remote "$@" 2>/dev/null
+}
+
+# The highest of the versions on stdin, in pacman's order.
+max_version() {
+	best=
+	while IFS= read -r v; do
+		[ -n "$v" ] || continue
+		if [ -z "$best" ] || [ "$(vercmp "$v" "$best")" -gt 0 ]; then
+			best=$v
+		fi
+	done
+	printf '%s\n' "$best"
+}
+
+# Ask upstream. Sets up_kind, up_auto, up_track, up_note, up_version (in pkgver
+# form), up_commit (git-commit only) and, when it could not tell, up_error.
+resolve_upstream() {
+	up_kind=$(up_get kind)
+	up_auto=$(up_get auto)
+	up_track=$(up_get track)
+	up_note=$(up_get note)
+	up_version=
+	up_commit=
+	up_error=
+	repo=$(up_get repo)
+	vsed=$(up_get version_sed)
+	[ -n "$vsed" ] || vsed='s/^v//'
+	case $up_kind in
+	github-release)
+		tag=$(gh_api "repos/$repo/releases/latest" | jq -r '.tag_name // empty' 2>/dev/null) || tag=
+		if [ -z "$tag" ]; then
+			up_error="no release found for $repo (renamed or deleted?)"
+			return 0
+		fi
+		up_version=$(printf '%s\n' "$tag" | sed -e "$vsed")
+		;;
+	github-tag)
+		re=$(up_get tag_regex)
+		[ -n "$re" ] || re='^v?[0-9]+(\.[0-9]+)*$'
+		if ! tags=$(git_remote --tags --refs "https://github.com/$repo"); then
+			up_error="cannot list the tags of $repo (renamed or deleted?)"
+			return 0
+		fi
+		# Only tags that make a valid pkgver are candidates, so an odd tag above
+		# the newest release does not hide it.
+		up_version=$(printf '%s\n' "$tags" | sed 's#.*refs/tags/##' | grep -E "$re" |
+			sed -e "$vsed" | grep -E '^[A-Za-z0-9._+~]+$' | max_version)
+		[ -n "$up_version" ] || up_error="no tag of $repo matches $re"
+		;;
+	git-commit)
+		branch=$(up_get branch)
+		if [ -z "$branch" ]; then
+			branch=$(git_remote --symref "https://github.com/$repo" HEAD |
+				sed -n 's#^ref: refs/heads/\([^[:space:]]*\).*#\1#p')
+		fi
+		if [ -z "$branch" ]; then
+			up_error="cannot reach $repo (renamed or deleted?)"
+			return 0
+		fi
+		up_commit=$(git_remote "https://github.com/$repo" "refs/heads/$branch" | cut -f 1)
+		if [ -z "$up_commit" ]; then
+			up_error="$repo has no branch $branch"
+			return 0
+		fi
+		up_version=$cur_pkgver
+		;;
+	local)
+		if ! grep -q '^pkgver()' "$pkgdir/PKGBUILD"; then
+			up_error="kind=local, but the PKGBUILD has no pkgver()"
+			return 0
+		fi
+		up_version=$(local_pkgver 2>/dev/null) || up_error="its pkgver() failed"
+		up_commit=$(local_head)
+		;;
+	follows)
+		up_version=$(cd "$self/$(up_get package)" 2>/dev/null && makepkg --printsrcinfo 2>/dev/null |
+			sed -n 's/^[[:space:]]*pkgver = //p' | head -n 1)
+		[ -n "$up_version" ] || up_error="cannot read the pkgver of $(up_get package)"
+		;;
+	watch-package)
+		up_version=$(LC_ALL=C pacman -Si "$(up_get package)" 2>/dev/null |
+			sed -n 's/^Version *: //p' | head -n 1 | sed 's/^[0-9]*://; s/-[^-]*$//')
+		[ -n "$up_version" ] || up_error="$(up_get package) is not in the sync databases"
+		;;
+	'') up_error="no upstream file" ;;
+	*) up_error="unknown kind '$up_kind' in its upstream file" ;;
+	esac
+	if [ -z "$up_error" ] && ! valid_pkgver "$up_version"; then
+		up_error="upstream gives '$up_version', not a valid pkgver (set tag_regex/version_sed)"
+	fi
+}
+
+pinned_commit() {
+	sed -n 's/^_commit=//p' "$pkgdir/PKGBUILD" | head -n 1
+}
+
+# Whether upstream has something the PKGBUILD does not.
+upstream_newer() {
+	[ -z "$up_error" ] || return 1
+	case $up_kind in
+	git-commit) [ "$up_commit" != "$(pinned_commit)" ] ;;
+	local)
+		# A new release, or a new commit since the recorded build.
+		[ "$(vercmp "$up_version" "$cur_pkgver")" -gt 0 ] && return 0
+		built=$(pinned_commit)
+		[ -n "$up_commit" ] && [ -n "$built" ] && [ "$up_commit" != "$built" ]
+		;;
+	*) [ "$(vercmp "$up_version" "$cur_pkgver")" -gt 0 ] ;;
+	esac
+}
+
+# The pkgrel a revision bump would give.
+next_pkgrel() {
+	echo "$cur_pkgrel" | awk -F. '{ print $1 + 1 }'
+}
+
+# One package's state for `check`: status (current, update, update-by-hand,
+# watch, publish, older, untracked, error) and a sentence for people.
+check_status() {
+	pub=$(published "$(printf '%s\n' "$names" | head -n 1)")
+	if [ "$up_track" = no ]; then
+		status=untracked
+		if [ -f "$pkgdir/upstream" ]; then action="not tracked"; else action="not tracked (no upstream file)"; fi
+	elif [ -n "$up_error" ]; then
+		status=error
+		action="cannot check: $up_error"
+	elif upstream_newer; then
+		if [ "$up_kind" = watch-package ]; then
+			status=watch
+			action="by hand: $up_note"
+		elif [ "$up_auto" = yes ]; then
+			status=update
+			action="update (automatic)${up_note:+; re-check: $up_note}"
+		else
+			status=update-by-hand
+			action="update by hand: $up_note"
+		fi
+	elif [ -n "$pub" ] && [ "$(vercmp "$cur_full" "$pub")" -lt 0 ]; then
+		status=older
+		action="OLDER than the published $pub (history rewritten, or an older checkout?)"
+	elif [ "$pub" != "$cur_full" ]; then
+		status=publish
+		action="publish (this version is not in the repo)"
+	else
+		status=current
+		action="up to date"
+	fi
+}
+
+# check [--tsv] [<pkg>...]: --tsv prints one tab-separated line per package for
+# programs (MinkaSyu's Sources tab): dir, kind, auto, track, PKGBUILD version,
+# published version, upstream version, upstream commit, status, note, error.
+do_check() {
+	tsv=
+	if [ "${1:-}" = --tsv ]; then
+		tsv=1
+		shift
+	fi
+	[ $# -gt 0 ] || set -- $(all_pkgs)
+	[ -n "$tsv" ] || printf '%-17s %-24s %-24s %-24s %s\n' package PKGBUILD published upstream action
+	for p in "$@"; do
+		if ! load_pkg "$p"; then
+			if [ -n "$tsv" ]; then
+				printf '%s\t\t\t\t\t\t\t\terror\t\tcannot read its PKGBUILD\n' "$p"
+			else
+				printf '%-17s %s\n' "$p" "cannot read its PKGBUILD (makepkg --printsrcinfo failed)"
+			fi
+			continue
+		fi
+		if [ "$(up_get track)" = no ] || [ ! -f "$pkgdir/upstream" ]; then
+			# Not followed: no network round trip for it.
+			up_kind=$(up_get kind)
+			up_auto=$(up_get auto)
+			up_track=no
+			up_note=$(up_get note)
+			up_version=
+			up_commit=
+			up_error=
+		else
+			resolve_upstream
+		fi
+		check_status
+		if [ -n "$tsv" ]; then
+			printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$p" "$up_kind" "${up_auto:-no}" \
+				"${up_track:-yes}" "$cur_full" "$pub" "$up_version" "$up_commit" "$status" "$up_note" "$up_error"
+			continue
+		fi
+		upstream=$up_version
+		# A new commit on the same version is a revision: show the version
+		# it builds as, and the commit in the action.
+		if [ -n "$up_commit" ] && [ "$up_version" = "$cur_pkgver" ] && upstream_newer; then
+			upstream="$cur_pkgver-$(next_pkgrel)"
+			action="$action (new commit $(printf %.7s "$up_commit"))"
+		fi
+		[ -z "$up_error" ] || upstream=?
+		printf '%-17s %-24s %-24s %-24s %s\n' "$p" "$cur_full" "${pub:--}" "${upstream:--}" "$action"
+	done
+}
+
+# Move the PKGBUILD to upstream's version: pkgver (or _commit), pkgrel, sums.
+# Runs in a subshell (see do_update), so a die here restores the PKGBUILD.
+bump_pkgbuild() {
+	set -e
+	old_src=$(printf '%s\n' "$srcinfo" | sed -n 's/^[[:space:]]*source\(_[^ ]*\)\{0,1\} = //p')
+	rel=$(up_get pkgrel_new)
+	case $up_kind in
+	git-commit)
+		set_field _commit "$up_commit"
+		set_field pkgrel "$(next_pkgrel)"
+		;;
+	local) return 0 ;; # refresh_pkgver, run by publish, writes it
+	*)
+		set_field pkgver "$up_version"
+		set_field pkgrel "${rel:-1}"
+		;;
+	esac
+	case $up_kind in
+	github-release | github-tag | git-commit) ;;
+	*) return 0 ;;
+	esac
+	# makepkg reuses a cached file by its local name. A source whose name stayed
+	# while its URL moved (a commit-pinned tarball named only by pkgver) would be
+	# re-hashed from the OLD download and then fail to build, so refuse: the
+	# PKGBUILD should put the commit or version in that name.
+	new_src=$(cd "$pkgdir" && makepkg --printsrcinfo 2>/dev/null |
+		sed -n 's/^[[:space:]]*source\(_[^ ]*\)\{0,1\} = //p')
+	stale=$(printf '%s\n' "$new_src" | while IFS= read -r line; do
+		# Plain downloads only: a VCS source (git+https://...) is a clone
+		# makepkg updates, whatever its fragment says.
+		case $line in *::http://* | *::https://* | *::ftp://*) ;; *) continue ;; esac
+		name=${line%%::*}
+		before=$(printf '%s\n' "$old_src" | awk -v n="$name::" 'index($0, n) == 1' | head -n 1)
+		if [ -n "$before" ] && [ "$before" != "$line" ] &&
+			{ [ -e "$pkgdir/$name" ] || [ -e "${SRCDEST:-/nonexistent}/$name" ]; }; then
+			printf '%s ' "$name"
+		fi
+	done)
+	[ -z "$stale" ] || die "cached source kept its name while its URL changed: $stale(delete it, or put the commit/version into its name in source=)"
+	echo "==> refreshing checksums"
+	(cd "$pkgdir" && updpkgsums) || die "updpkgsums failed"
+}
+
+do_update() {
+	all=
+	if [ "${1:-}" = --all ]; then
+		all=1
+		shift
+		set -- $(all_pkgs)
+	fi
+	[ $# -gt 0 ] || usage
+	failed=
+	reminders=
+	for p in "$@"; do
+		if ! load_pkg "$p"; then
+			echo "==> $p: cannot read its PKGBUILD (makepkg --printsrcinfo failed)" >&2
+			failed="$failed $p"
+			continue
+		fi
+		if [ ! -f "$pkgdir/upstream" ]; then
+			[ -n "$all" ] && continue
+			die "$p has no upstream file"
+		fi
+		if [ -n "$all" ] && [ "$(up_get track)" = no ]; then
+			continue
+		fi
+		resolve_upstream
+		if [ -n "$up_error" ]; then
+			echo "==> $p: cannot check: $up_error" >&2
+			# Under --all only a package that was to be updated unattended fails
+			# the run; the others are reported, as their updates are.
+			if [ -n "$all" ] && [ "$up_auto" != yes ]; then
+				continue
+			fi
+			failed="$failed $p"
+			continue
+		fi
+		if upstream_newer; then
+			if [ "$up_kind" = watch-package ]; then
+				echo "==> $p: $(up_get package) is now $up_version; by hand: $up_note"
+				continue
+			fi
+			if [ -n "$all" ] && [ "$up_auto" != yes ]; then
+				echo "==> $p: $up_version is available, left for you${up_note:+: $up_note}"
+				continue
+			fi
+			if [ "$up_auto" != yes ] && [ -n "$up_note" ]; then
+				echo "==> $p: remember, by hand: $up_note"
+			fi
+			# The bump runs in a subshell against a backup kept outside her tree:
+			# a failed download or field write puts the PKGBUILD back exactly.
+			bak=$(mktemp "${TMPDIR:-/tmp}/minkarepo-PKGBUILD.XXXXXX") ||
+				die "cannot back up $p/PKGBUILD"
+			cp "$pkgdir/PKGBUILD" "$bak"
+			set +e
+			(bump_pkgbuild)
+			rc=$?
+			set -e
+			if [ "$rc" -ne 0 ]; then
+				cat "$bak" > "$pkgdir/PKGBUILD"
+				unlink "$bak"
+				echo "==> $p: could not move to $up_version; its PKGBUILD is as it was" >&2
+				failed="$failed $p"
+				continue
+			fi
+			unlink "$bak"
+			[ "$up_kind" = local ] || echo "==> $p: $cur_full -> $(load_pkg "$p" && echo "$cur_full")"
+		else
+			if [ -n "$all" ] && [ "$up_auto" != yes ]; then
+				continue
+			fi
+			pub=$(published "$(printf '%s\n' "$names" | head -n 1)")
+			if [ "$up_kind" != local ] && [ "$pub" = "$cur_full" ]; then
+				echo "==> $p: up to date ($cur_full)"
+				continue
+			fi
+		fi
+		if [ -n "$up_note" ]; then
+			reminders="$reminders
+==> $p: re-check: $up_note"
+		fi
+		# A subshell, so one package's failure does not stop the others under
+		# --all. Not `( ... ) || failed=`: inside an AND-OR list set -e is off,
+		# and a failed repo-add would pass as success.
+		set +e
+		(
+			set -e
+			do_publish "$p"
+		)
+		rc=$?
+		set -e
+		[ "$rc" -eq 0 ] || failed="$failed $p"
+	done
+	[ -z "$reminders" ] || printf '%s\n' "$reminders"
+	[ -z "$failed" ] || die "failed:$failed"
+}
+
+# track <pkg>... yes|no: whether check and update --all follow it.
+do_track() {
+	[ $# -ge 2 ] || usage
+	eval "want=\${$#}"
+	case $want in yes | no) ;; *) usage ;; esac
+	while [ $# -gt 1 ]; do
+		need_pkgdir "$1"
+		[ -f "$pkgdir/upstream" ] || die "$1 has no upstream file"
+		if grep -q '^track=' "$pkgdir/upstream"; then
+			sed -i "s/^track=.*/track=$want/" "$pkgdir/upstream"
+		else
+			printf 'track=%s\n' "$want" >> "$pkgdir/upstream"
+		fi
+		echo "==> $1: track=$want"
+		shift
+	done
+}
+
 cmd=${1:-}
 # `[ ... ] && shift` would return non-zero when no args were given, and under
 # `set -e` that exits before the usage message is ever printed.
@@ -221,5 +745,8 @@ case $cmd in
 	publish) do_publish "${1:-}" ;;
 	list)    do_list ;;
 	remove)  do_remove "${1:-}" ;;
+	check)   do_check "$@" ;;
+	track)   do_track "$@" ;;
+	update)  do_update "$@" ;;
 	*)       usage ;;
 esac

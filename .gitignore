@@ -30,4 +30,6 @@ firestorm-novlc/firestorm/
 
 firestorm-novlc/fs-build-variables/
 
-bcachefs-dkms/
+# makepkg's clone of the bcachefs-tools git source (not the whole directory:
+# its PKGBUILD, patches and upstream file are tracked).
+bcachefs-dkms/bcachefs-tools/
