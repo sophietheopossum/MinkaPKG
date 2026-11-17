@@ -601,8 +601,11 @@ END
   mv obj-artifact-build-output obj-artifact-build-output_old
   mv obj-artifact-build-output_new obj-artifact-build-output
 
-  # floorp post-mach
-  _deno task feles-build build --phase after-mach
+  # floorp post-mach. CI=true: since 12.21.2 feles-build injects into the
+  # obj-artifact-build-output/dist/bin this build made only when CI=true (GitHub
+  # Actions sets it); otherwise it targets noraneko/_dist/bin/floorp, the dev-run
+  # path, which a package build does not have, and fails. 12.21.0 hard-coded it.
+  CI=true _deno task feles-build build --phase after-mach
 
   # floorp patches 3/3
   for i in noraneko/tools/patches/*.patch; do
