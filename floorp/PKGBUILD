@@ -27,12 +27,18 @@
 : ${_install_path:=usr/lib}
 : ${_wmclass:=floorp}
 
-: ${_runtime_commit:=0ac255739cdd64e100cd6913329247421b0ec2ea} # daily-1177
+: ${_runtime_commit:=725356c4cdb9c7f8403a5d4ff32fa46bb671b6e5}
+# Her Floorp-Runtime fork, branch nora-0.2.0: upstream daily-1180 (741c4537,
+# Firefox 160.0.1, what Floorp 12.21.2 locks) plus the Mozilla fixes she picked
+# (bugs 1999636, 2088349, 2090212, the cycle-collector series, Wayland and
+# canvas fixes). The fixes live in the fork, not here: the PKGBUILD applies
+# none of its own to Gecko. A tarball build needs this commit pushed to the
+# fork; build-local-package.sh uses the local clone's HEAD instead.
 
 _pkgname="floorp"
 pkgname="$_pkgname"
-pkgver=12.21.0
-pkgrel=2
+pkgver=12.21.2
+pkgrel=1
 pkgdesc="Firefox-based web browser focused on performance and customizability"
 url="https://github.com/Floorp-Projects/Floorp"
 license=('MPL-2.0')
@@ -131,7 +137,7 @@ fi
 _pkgext="tar.gz"
 source=(
   "$_pkgname-components-$pkgver.$_pkgext"::"https://github.com/Floorp-Projects/Floorp/archive/refs/tags/v$pkgver.$_pkgext"
-  "$_pkgname-runtime-${_runtime_commit::7}.$_pkgext"::"https://github.com/Floorp-Projects/Floorp-Runtime/archive/$_runtime_commit.$_pkgext"
+  "$_pkgname-runtime-${_runtime_commit::7}.$_pkgext"::"https://github.com/sophietheopossum/Floorp-Runtime/archive/$_runtime_commit.$_pkgext"
   "$_pkgsrc_core"::"git+https://github.com/Floorp-Projects/Floorp-core.git"
   "$_pkgname.desktop"
   # 0002 only drops MOZ_APP_VENDOR from the branding's configure.sh (a confvars
@@ -139,21 +145,15 @@ source=(
   # own upstream/moz.configure.patch owns that file and brings the "Ablaze" vendor in
   # through .github/assets/config/moz.configure.
   '0002-vendor-must-be-implied-not-confvars.patch'
-  # Mozilla Bug 2062135, backported unchanged from Firefox 160: round both
-  # viewport source edges before deriving width/height, so a fractional-scale
-  # source rectangle cannot extend past its buffer and kill the client with a
-  # wp_viewport protocol error.
-  'firefox-2062135-round-viewport-source-edges.patch'
 )
 # No comments inside sha256sums=(): `minkarepo update floorp` runs updpkgsums,
 # which rewrites that array whole.
 sha256sums=(
-  '572358682a80e0d4da3d785a5b7e215de67af790b66ee3e0a1c7182ee984598d'
+  'd20e097e95135c2cbbe933a9b5299e581c2cdf5683400d68a342b526b12cd3bf'
   'SKIP'
   'SKIP'
   '8b38d000950cddd5fa0e1598540590af21f1aae1d30212fb11197c8526662604'
   '6319b6209509c2fb98f302fe187abeeab4783c198cb2941f2bcc7d851e84c973'
-  '14342c2d760cc6fb09d313361985770aef2e3ba898cfc8f54d36a92073faeb71'
 )
 if [[ "${_build_local_repos::1}" == "t" ]]; then
   source[0]="$_pkgsrc"::"git+file://$_local_repos_root/Floorp#$_local_floorp_ref"
