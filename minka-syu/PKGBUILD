@@ -15,7 +15,9 @@ license=('MIT')
 # default terminal for apply (MINKA_SYU_TERMINAL overrides), libnotify
 # for --notify. curl fetches AppStream screenshots for the detail view.
 depends=('glibc' 'libgcc' 'pacman' 'archlinux-appstream-data'
-         'wayland' 'libxkbcommon' 'fontconfig' 'vulkan-icd-loader' 'curl')
+         'wayland' 'libxkbcommon' 'fontconfig' 'vulkan-icd-loader' 'curl'
+         # AntiWebUI's md3e crate turns the toolkit's X11 backend on.
+         'libxcb' 'libxkbcommon-x11')
 makedepends=('cargo' 'git')
 optdepends=('paru: AUR update checks and applying updates'
             'rio: default terminal for applying updates'
