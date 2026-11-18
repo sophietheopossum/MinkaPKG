@@ -1,7 +1,7 @@
 # Maintainer: Sophie <goldsnakeking@gmail.com>
 
 pkgname=minka-syu
-pkgver=0.7.1
+pkgver=0.8.0
 pkgrel=1
 pkgdesc="Update notifier, browser & installed manager: safe repo+AUR checks with provenance; applying is paru's job"
 arch=('x86_64')
@@ -40,7 +40,7 @@ _src="$_minkade/MinkaSyu"
 # that and records the commit built from in _commit=; without one, raise
 # pkgrel by hand. Uncommitted changes are built but not tracked, so commit
 # first (GitKraken does).
-_commit=d99da446142f537c6a84277762f07515a8de041c
+_commit=5a58aec2f1c7c871402174e856b79ac230b72cf7
 pkgver() {
 	cd "$_src"
 	local cargo tag
