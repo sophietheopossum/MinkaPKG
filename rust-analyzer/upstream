@@ -1,0 +1,9 @@
+# Weekly releases, tagged by date (2026-11-16); pkgver drops the dashes, as Arch's does.
+kind=github-tag
+repo=rust-lang/rust-analyzer
+tag_regex=^[0-9]{4}-[0-9]{2}-[0-9]{2}$
+version_sed=s/-//g
+auto=no
+# CachyOS rebuilds as x-1.1 and its repo is above [minka]: pkgrel 1 would lose.
+pkgrel_new=2
+note=nothing to edit: build() retrains PGO itself (and fails if the profile does not match), check() confirms --version names the new tag. A build takes ~20 min and peaks at ~5.5 GB. Install EVERY bump with `sudo pacman -S minka/rust-analyzer` or through MinkaSyu: cachyos-extra-v4 ships the same name and is above [minka], so a plain -Syu or pamac never takes it

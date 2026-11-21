@@ -1,0 +1,329 @@
+# Maintainer: Sophie <goldsnakeking@gmail.com>
+#
+# Follows Arch's extra/rust-analyzer PKGBUILD (Daniel M. Capella
+# <polyzen@archlinux.org>, Orhun Parmaksız <orhun@archlinux.org>, contributor
+# Sergey A. <murlakatamenka@disroot.org>) and replaces that package under the
+# same name.
+#
+# WHY: VS Code's rust-analyzer extension updates itself every week and sends
+# settings in the shape of its own release. A server weeks older can reject
+# them: on 20/11/2026 extension 0.3.3113 against Arch's 20260907 made the
+# server answer with an error before its initialize response, and lspmux
+# dropped the instance. This package keeps /usr/bin/rust-analyzer at
+# upstream's weekly release. Bump with `minkarepo update rust-analyzer`;
+# everything below, PGO training included, runs inside build().
+#
+# HOW IT IS BUILT: build() follows upstream's own release recipe, `cargo
+# xtask dist --pgo` (xtask/src/dist.rs and pgo.rs in the source): an
+# instrumented build, a training run of that build's `analysis-stats
+# --run-all-ide-things` over clap 4.5.36, `llvm-profdata merge`, then the
+# optimised build, with jemalloc and one codegen unit. The one change from
+# upstream is fat LTO instead of thin. Arch also builds with fat LTO, but
+# without PGO and with glibc malloc.
+#
+# MEASURED 21/11/2026 against upstream's own 2026-11-16 binary (the build the
+# VS Code extension bundles): `analysis-stats --run-all-ide-things` on three
+# crates the profile never saw (MinkaThermal, MinkaSyu's gui crate, ripgrep
+# 15.2.0). The binary this PKGBUILD built and packaged ran 0.8-1.8% fewer
+# instructions and 1.6-2.1% fewer CPU cycles, with the same peak memory: 6
+# runs each in a balanced (Williams) order, and on all six comparisons no run
+# of one overlapped the other's (p = 0.002 each, 0.03 after correcting for
+# the 12 comparisons made). The instruction saving of this recipe, 0.7-2.0%
+# over both builds of it, held in all three sessions run that day. The cycle
+# saving did not always show: in a 3-run session whose cycle noise was +-2-8%
+# it could not be told apart from the noise. It is a small gain, too small to
+# show in CPU or wall time on a laptop that throttles at 90+ C, where those
+# move 5-10% with the clock. The comments on the switches below say what else
+# was tried.
+#
+# Each build is slightly different code: build() trains a fresh profile every
+# time, and training is not reproducible (two runs of it on the same release
+# gave profiles whose counts differ by 0.4%). An earlier build with this
+# exact recipe differs from the packaged one in 171 of 32,341 functions, and
+# measured the same within 0.3% in the session above. So a weekly rebuild
+# should land within a fraction of a percent of these figures, not on them.
+#
+# Install EVERY bump, not only the first, with `sudo pacman -S
+# minka/rust-analyzer` or through MinkaSyu's cross-repo offer.
+# cachyos-extra-v4 ships the same name and is listed above [minka], and
+# pacman takes a package from the first repo that has its name, so a plain
+# -Syu or pamac never installs the minka build.
+#
+# pkgrel starts at 2 (`pkgrel_new=2` in `upstream`, as bcachefs-dkms does).
+# CachyOS republishes each Arch release as x-1.1, which vercmp ranks above
+# x-1: with pkgrel 1, once Arch caught up with the release installed here,
+# -Syu would replace this build with CachyOS's build of the same release (no
+# PGO, glibc malloc) without a word. Against x-2 it only warns that the local
+# package is newer. A newer release in CachyOS still replaces this one.
+
+pkgname=rust-analyzer
+# The release tag without its dashes, as in Arch. Keep pkgver a literal line:
+# `minkarepo update` rewrites it, and _tag follows from it.
+pkgver=20261116
+# 2, not 1: see the header. `minkarepo update` resets it to pkgrel_new (2).
+pkgrel=2
+_tag=${pkgver:0:4}-${pkgver:4:2}-${pkgver:6:2}
+pkgdesc='Rust compiler front-end for IDEs'
+arch=(x86_64)
+url=https://rust-analyzer.github.io/
+license=('MIT OR Apache-2.0')
+depends=(
+  libgcc
+  rust-src
+)
+# llvm: llvm-profdata for PGO (see _profdata). git: get-tar-commit-id.
+makedepends=(cargo git llvm)
+# !lto: makepkg's lto option only adds GCC's -flto to CFLAGS, which turns the
+# C half of jemalloc/mimalloc into GCC IR objects that the Rust link (rust-lld)
+# cannot read: "undefined symbol: _rjem_malloc" (tested 21/11/2026). Rust's
+# own LTO is _lto below.
+# !strip: keep the symbol table, as upstream's binary does, so a panic
+# backtrace in lspmux's journal names functions. There is no DWARF to strip:
+# the release profile has debug = 0, and cargo strips std's.
+options=(!lto !strip)
+
+# ---- build switches -----------------------------------------------------------
+# Each figure below compares two builds that differ in that one switch, on the
+# three crates above, 5 runs each (21/11/2026). "Outside the noise" means the
+# 5 runs of the two builds did not overlap at all: p = 0.008 for one such
+# comparison, not corrected for the ~40 made in that session, and judged on
+# instructions and cycles only, since wall and CPU time followed the clock.
+#
+# Rust LTO: fat | thin | off. fat gave 2.0-3.5% fewer cycles than thin; 5 of
+# 6 comparisons were outside the noise. That session's run order put the thin
+# native build after the mimalloc one every time; the generic pair, which it
+# did not touch, gave 2.0-2.9% (2 of 3 outside the noise). It costs ~5 more
+# minutes of build and 5.2 GB peak memory instead of 2.5 GB.
+_lto=fat
+# -Ctarget-cpu of the Rust code: x86-64 (generic, as upstream and Arch),
+# x86-64-v3, x86-64-v4, native, or any name in `rustc --print target-cpus`.
+# native (tigerlake) ran 1.7-2.7% fewer instructions but the same cycles
+# (within the noise of +-0.8%). It was no faster, and generic keeps the
+# package portable. The C half of jemalloc follows makepkg.conf's CFLAGS
+# (-march=native there) whatever this says.
+_target_cpu=x86-64
+# Global allocator: jemalloc (upstream's Linux builds), mimalloc, system (Arch).
+# mimalloc 0.1.52 cost 3.5-5.2% more cycles and about 3x the kernel time
+# (page faults), with up to 2.4% more peak memory. system was not measured.
+_allocator=jemalloc
+# PGO training corpora, analysed in this order and merged into one profile;
+# () builds without PGO. clap is upstream's own training crate. smithay 0.7.0,
+# meant to be closer to her compositor work, was tried alone and after clap.
+# On the three held-out crates it moved cycles by under 1% against clap alone
+# (noise +-0.4-1.1%), so it was dropped. A test on a copy of ShojiWM was
+# inconclusive, not a confirmation: 3 runs each, one of them under memory
+# pressure (peak RSS below rust-analyzer's own figure), cycle noise +-2-6%,
+# and ShojiWM is not held out (it analyses her smithay fork, also 0.7.0).
+# There clap + smithay ran 0.9% fewer instructions, with cycles unchanged.
+# Adding a corpus takes a source entry and a _corpus_dir case.
+_pgo_corpus=(clap)
+# -------------------------------------------------------------------------------
+
+# The corpus is pinned: a profile only means the same thing across weekly
+# bumps when what it was trained on stays the same.
+_clap_ver=4.5.36
+
+_srcname=$pkgname-$_tag
+source=("$_srcname.tar.gz::https://github.com/rust-lang/rust-analyzer/archive/refs/tags/$_tag.tar.gz"
+        "clap-$_clap_ver.tar.gz::https://github.com/clap-rs/clap/archive/refs/tags/v$_clap_ver.tar.gz")
+sha256sums=('b80b65ab44e10abddb07ba46721c3a8e5d9baae4e757807982a1abfc2790a402'
+            '98a6eae3dac52f63d81f0efb300918157d2f5e51cc52b36c8fa5b4cdfce0ca04')
+
+_corpus_dir() {
+	case $1 in
+	clap) printf '%s\n' "clap-$_clap_ver" ;;
+	*)
+		error "unknown PGO corpus '$1' (known: clap)"
+		return 1
+		;;
+	esac
+}
+
+_check_switches() {
+	local cpus c
+	case $_lto in
+	fat | thin | off) ;;
+	*) error "_lto=$_lto: want fat, thin or off"; return 1 ;;
+	esac
+	case $_allocator in
+	jemalloc | mimalloc | system) ;;
+	*) error "_allocator=$_allocator: want jemalloc, mimalloc or system"; return 1 ;;
+	esac
+	# rustc only warns about a CPU name it does not know, then builds generic.
+	cpus=$(rustc --print target-cpus | awk 'NR > 1 { print $1 }')
+	if ! grep -qxF -- "$_target_cpu" <<<"$cpus"; then
+		error "_target_cpu=$_target_cpu is not in \`rustc --print target-cpus\`"
+		return 1
+	fi
+	for c in "${_pgo_corpus[@]}"; do
+		_corpus_dir "$c" >/dev/null || return 1
+	done
+}
+
+# PGO needs the llvm-profdata of rustc's own LLVM major: the .profraw format
+# follows LLVM. Arch's rust links the system libLLVM, so the llvm package
+# matches it; a rustup toolchain carries its own copy (llvm-tools), which is
+# where upstream's xtask looks first too.
+_profdata() {
+	local want have tool
+	want=$(rustc -vV | sed -n 's/^LLVM version: \([0-9]*\).*/\1/p')
+	for tool in "$(rustc --print target-libdir)/../bin/llvm-profdata" llvm-profdata; do
+		command -v "$tool" >/dev/null || continue
+		have=$("$tool" --version | sed -n 's/^ *LLVM version \([0-9]*\).*/\1/p')
+		if [[ -n $want && $have == "$want" ]]; then
+			printf '%s\n' "$tool"
+			return 0
+		fi
+	done
+	error "no llvm-profdata of LLVM $want, the LLVM of $(rustc -V)"
+	return 1
+}
+
+# One build of the server. Both PGO builds go through here with the same cargo
+# profile: PGO finds functions by mangled name, and the crate hash in those
+# names follows the cargo profile. On a probe crate, a fat -> thin change
+# between the two builds left every function without profile data (21/11/2026).
+#   $1 target dir, $2 extra RUSTFLAGS, $3 log file
+_build_ra() {
+	local features=()
+	[[ $_allocator == system ]] || features=(--features "$_allocator")
+	# --target, as upstream: RUSTFLAGS then skip build scripts and proc macros,
+	# which would otherwise be instrumented too and write profiles of their own.
+	env CARGO_PROFILE_RELEASE_LTO="$_lto" CARGO_PROFILE_RELEASE_CODEGEN_UNITS=1 \
+		RUSTFLAGS="${RUSTFLAGS:-} -Ctarget-cpu=$_target_cpu $2" \
+		cargo build --release --locked --offline --target-dir "$1" \
+		--manifest-path crates/rust-analyzer/Cargo.toml --bin rust-analyzer \
+		--target "$(rustc --print host-tuple)" "${features[@]}" 2>&1 | tee "$3"
+	return "${PIPESTATUS[0]}"
+}
+
+# A badly loaded corpus still "succeeds": when the full `cargo metadata` fails,
+# rust-analyzer falls back to `--no-deps` and many types come out unknown. Its
+# own statistics show that. Measured 21/11/2026 with upstream's 2026-11-16
+# binary: 0% for clap and smithay loaded normally, 11% for clap with its
+# dependencies unresolved.
+_pgo_max_unknown_pct=3
+# How many functions the optimised build may find without (or with stale)
+# profile data before build() fails. See the end of build().
+_pgo_max_mismatch=100
+_check_training() {
+	local log=$1 pct
+	if ! grep -q '^Total:' "$log"; then
+		error "training run did not finish: $log"
+		return 1
+	fi
+	pct=$(sed -n 's/^ *exprs: [0-9]*, ??ty: [0-9]* (\([0-9]*\)%).*/\1/p' "$log" | head -n 1)
+	if [[ -z $pct ]] || ((pct > _pgo_max_unknown_pct)); then
+		error "training run left ${pct:-?}% of expressions untyped (limit $_pgo_max_unknown_pct): $log"
+		return 1
+	fi
+	grep -E '^(Database loaded|Total):|^ *exprs:' "$log"
+}
+
+prepare() {
+	_check_switches
+	cd "$_srcname"
+	cargo fetch --locked --target "$(rustc --print host-tuple)"
+
+	# rust-analyzer loads a corpus like any project: it asks cargo for the
+	# metadata and runs the build scripts. Their crates are fetched here.
+	local c dir
+	for c in "${_pgo_corpus[@]}"; do
+		dir=$(_corpus_dir "$c") || return 1
+		cargo fetch --locked --manifest-path "$srcdir/$dir/Cargo.toml"
+	done
+}
+
+build() {
+	_check_switches
+	cd "$_srcname"
+	local host pgo ra profdata c dir missing changed
+	host=$(rustc --print host-tuple)
+	msg2 "LTO $_lto, target-cpu $_target_cpu, allocator $_allocator, PGO corpus: ${_pgo_corpus[*]:-none}"
+
+	# Her ~/.cargo/config.toml names a rustc-wrapper (buildcache). Not for this:
+	# instrumented objects must never be cached, and nothing guarantees that a
+	# cache keys a -Cprofile-use object on the profile's contents.
+	export RUSTC_WRAPPER= RUSTC_WORKSPACE_WRAPPER=
+
+	# --version. Upstream's build.rs asks git for the commit, and from here git
+	# would find the MinkaPKG checkout around $srcdir: stop it at $srcdir and
+	# take the commit from the tarball, where git archive recorded it.
+	export GIT_CEILING_DIRECTORIES=$srcdir
+	export CFG_RELEASE=$_tag RA_COMMIT_HASH RA_COMMIT_SHORT_HASH RA_COMMIT_DATE
+	RA_COMMIT_HASH=$(git get-tar-commit-id < <(gzip -dc "$srcdir/$_srcname.tar.gz"))
+	RA_COMMIT_SHORT_HASH=${RA_COMMIT_HASH::10}
+	RA_COMMIT_DATE=$(date -u -d "@$(stat -c %Y Cargo.toml)" +%F)
+
+	if ((${#_pgo_corpus[@]} == 0)); then
+		_build_ra "$srcdir/target" "" "$srcdir/build.log"
+		return
+	fi
+
+	profdata=$(_profdata)
+	pgo=$srcdir/pgo
+	rm -rf "$pgo"
+	mkdir -p "$pgo/raw"
+
+	msg2 "PGO 1/3: instrumented build"
+	_build_ra "$pgo/target" "-Cprofile-generate=$pgo/raw" "$pgo/build-instrumented.log"
+
+	ra=$pgo/target/$host/release/$pkgname
+	for c in "${_pgo_corpus[@]}"; do
+		dir=$(_corpus_dir "$c")
+		msg2 "PGO 2/3: training on $dir"
+		# The corpus's build scripts build in a target dir of their own.
+		if ! CARGO_TARGET_DIR="$pgo/corpus-target/$c" \
+			"$ra" analysis-stats -q --run-all-ide-things "$srcdir/$dir" >"$pgo/train-$c.log" 2>&1; then
+			tail -n 40 "$pgo/train-$c.log"
+			error "training on $dir failed: $pgo/train-$c.log"
+			return 1
+		fi
+		_check_training "$pgo/train-$c.log"
+	done
+	"$profdata" merge -o "$pgo/merged.profdata" "$pgo"/raw/*.profraw
+
+	msg2 "PGO 3/3: optimised build"
+	_build_ra "$srcdir/target" "-Cprofile-use=$pgo/merged.profdata -Cllvm-args=-pgo-warn-missing-function" \
+		"$pgo/build-optimised.log"
+	# How well the profile matched: LLVM warns once per function it found no
+	# record for, or whose control flow differs from the recorded one.
+	missing=$(grep -c 'no profile data available for function' "$pgo/build-optimised.log") || true
+	changed=$(grep -c 'function control flow change detected' "$pgo/build-optimised.log") || true
+	msg2 "PGO: $missing functions without profile data, $changed with changed control flow"
+	# Both builds compile the same functions, so a sound run reports 0 and 0, as
+	# every build of 21/11/2026 did. A profile that did not match warns for
+	# nearly every function, and the binary would ship as if built without PGO.
+	if ((missing + changed > _pgo_max_mismatch)); then
+		error "the PGO profile did not match the optimised build: $pgo/build-optimised.log"
+		return 1
+	fi
+}
+
+check() {
+	local ra v
+	ra=$srcdir/target/$(rustc --print host-tuple)/release/$pkgname
+	v=$("$ra" --version)
+	msg2 "$v"
+	if [[ $v != "rust-analyzer $_tag ("* ]]; then
+		error "--version says '$v', expected rust-analyzer $_tag (commit date)"
+		return 1
+	fi
+	# The allocator switch took effect: tikv-jemalloc-sys prefixes its symbols,
+	# and every mimalloc deallocation goes through mi_free.
+	case $_allocator in
+	jemalloc) grep -qx '[0-9a-f]* T _rjem_malloc' < <(nm "$ra") ;;
+	mimalloc) grep -qx '[0-9a-f]* T mi_free' < <(nm "$ra") ;;
+	system) ! grep -qxE '[0-9a-f]* T (_rjem_malloc|mi_free)' < <(nm "$ra") ;;
+	esac || {
+		error "the binary does not carry the $_allocator allocator"
+		return 1
+	}
+	"$ra" parse --no-dump <"$srcdir/$_srcname/crates/rust-analyzer/src/bin/main.rs"
+}
+
+package() {
+	cd "$_srcname"
+	install -Dt "$pkgdir"/usr/bin "$srcdir/target/$(rustc --print host-tuple)/release/$pkgname"
+	install -Dm644 -t "$pkgdir"/usr/share/licenses/$pkgname LICENSE-MIT
+}
