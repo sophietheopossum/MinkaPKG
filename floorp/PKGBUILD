@@ -17,6 +17,8 @@
                              # 7/9/2026 attempt peaked 9.3 GiB resident + 9.6 GiB swap and
                              # took the session down with it. Thin is still LTO.
 : ${_build_system_libs:=true} # use system libraries, reduces build time
+: ${_build_debug_symbols:=true} # line tables (function names and source lines) for crash
+                                # backtraces, kept in /usr/lib/debug; see _split_debug
 : ${_build_local_repos:=false} # true: build committed HEADs from MinkaDE floorp/* clones
 : ${_local_repos_root:=}
 : ${_local_floorp_ref:=branch=main}
@@ -38,7 +40,7 @@
 _pkgname="floorp"
 pkgname="$_pkgname"
 pkgver=12.21.2
-pkgrel=1
+pkgrel=2
 pkgdesc="Firefox-based web browser focused on performance and customizability"
 url="https://github.com/Floorp-Projects/Floorp"
 license=('MPL-2.0')
@@ -314,13 +316,9 @@ mk_add_options MOZ_DATA_REPORTING=0
 mk_add_options MOZ_SERVICES_HEALTHREPORT=0
 mk_add_options MOZ_TELEMETRY_REPORTING=0
 
-# Debugging
+# Debugging (debug symbols: see _build_debug_symbols below)
 ac_add_options --disable-debug
-ac_add_options --disable-debug-symbols
 ac_add_options --disable-debug-js-modules
-ac_add_options --enable-strip
-ac_add_options --enable-install-strip
-export STRIP_FLAGS="--strip-debug --strip-unneeded"
 
 # Optimization
 ac_add_options --enable-optimize
@@ -358,6 +356,36 @@ END
   if [[ "${_build_lto::1}" == "t" ]]; then
     cat >> mozconfig << END
 ac_add_options --enable-lto=cross,${_build_lto_mode}
+END
+  fi
+
+  # Debug symbols. Line tables only: enough for function names and source lines in a
+  # crash backtrace (the 20/11/2026 crash was all bare libxul offsets), at a fraction
+  # of the size, and of the compile and link memory, that full debug info costs.
+  # -g does not change the generated code. mach strips nothing; package() moves the
+  # debug sections out of the installed files (_split_debug).
+  if [[ "${_build_debug_symbols::1}" == "t" ]]; then
+    cat >> mozconfig << END
+ac_add_options --enable-debug-symbols=-gline-tables-only
+ac_add_options --disable-strip
+ac_add_options --disable-install-strip
+END
+    # Gecko gives Rust full debug info (-C debuginfo=2) whenever debug symbols are on
+    # and has no option for less. For gkrust that multiplies rustc's memory and the
+    # link's, so lower it to line tables like the C++ side. Stop if the line moved:
+    # silently getting full Rust debug info is how a build outgrows 15 GiB.
+    local _rc="$_pkgsrc_runtime/build/moz.configure/rust.configure"
+    if [[ "$(grep -c '^        debug_info = "2"$' "$_rc")" != 1 ]]; then
+      echo "==> ERROR: $_rc no longer sets debug_info = \"2\" on one line; see _build_debug_symbols" >&2
+      exit 1
+    fi
+    sed -i 's/^        debug_info = "2"$/        debug_info = "line-tables-only"/' "$_rc"
+  else
+    cat >> mozconfig << END
+ac_add_options --disable-debug-symbols
+ac_add_options --enable-strip
+ac_add_options --enable-install-strip
+export STRIP_FLAGS="--strip-debug --strip-unneeded"
 END
   fi
 
@@ -465,6 +493,11 @@ export MOZ_ENABLE_FULL_SYMBOLS=1
 
 # prevent error during instrumented build
 ac_add_options --enable-official-branding
+
+# This build only records the profile and is thrown away, so it needs no debug
+# symbols; later options override the ones from ../mozconfig.
+ac_add_options --disable-debug-symbols
+ac_add_options --enable-install-strip
 END
       ./mach build --priority normal
 
@@ -587,10 +620,23 @@ END
   # an earlier build() brings it back with nothing failing, and the string comes from
   # nowhere else in libxul (12/10/2026).
   local _xul=obj-artifact-build-output/dist/bin/libxul.so
-  if [[ ! -s "$_xul" ]] || grep -aq 'buildid2' "$_xul"; then
-    echo "==> ERROR: $_xul is missing or still has the buildid2 check; see _floorp_dropped_patch" >&2
+  if [[ ! -s "$_xul" ]]; then
+    echo "==> ERROR: $_xul is missing" >&2
     exit 1
   fi
+  # With debug symbols, search a copy stripped the way the package ships it: a
+  # function or file name in the debug info or the symbol table could contain the
+  # string without the check being compiled in.
+  local _xul_code="$_xul"
+  if [[ "${_build_debug_symbols::1}" == "t" ]]; then
+    _xul_code="$srcdir/libxul-without-debug.so"
+    llvm-objcopy --strip-debug --strip-unneeded "$_xul" "$_xul_code" || exit 1
+  fi
+  if grep -aq 'buildid2' "$_xul_code"; then
+    echo "==> ERROR: $_xul still has the buildid2 check; see _floorp_dropped_patch" >&2
+    exit 1
+  fi
+  [[ "$_xul_code" == "$_xul" ]] || rm -f "$_xul_code"
 
   # missing on install
   cp noraneko/_dist/buildid2 obj-artifact-build-output/dist/bin/browser
@@ -631,9 +677,45 @@ END
   bash noraneko/static/gecko/pref/override.sh obj-artifact-build-output/dist/bin/browser/defaults/preferences/firefox.js
 )
 
+# Moves the debug sections of every ELF file under $1 into
+# /usr/lib/debug/.build-id/<xx>/<rest>.debug, where gdb, elfutils and so coredumpctl
+# look them up by build ID, then strips the installed file the way
+# --enable-install-strip did (STRIP_FLAGS). The installed browser is the same size as
+# without symbols. Fails the package step rather than shipping half of them.
+_split_debug() {
+  local _f _id _dbg _n=0
+  while IFS= read -r -d '' _f; do
+    [[ "$(head -c 4 "$_f" | od -An -tx1 | tr -d ' \n')" == 7f454c46 ]] || continue
+    if ! readelf -S -W "$_f" 2> /dev/null | grep -q ' \.debug_line '; then
+      # No debug info (built without -g); strip it all the same, as before.
+      llvm-strip --strip-debug --strip-unneeded "$_f" || return 1
+      continue
+    fi
+    _id=$(readelf -n "$_f" 2> /dev/null | awk '/Build ID:/ { print $3; exit }')
+    if [[ -z "$_id" ]]; then
+      echo "==> ERROR: $_f has debug info but no build ID" >&2
+      return 1
+    fi
+    _dbg="$pkgdir/usr/lib/debug/.build-id/${_id:0:2}/${_id:2}.debug"
+    install -dm755 "${_dbg%/*}"
+    llvm-objcopy --only-keep-debug --compress-debug-sections=zlib "$_f" "$_dbg" || return 1
+    chmod 644 "$_dbg"
+    llvm-strip --strip-debug --strip-unneeded "$_f" || return 1
+    _n=$((_n + 1))
+  done < <(find "$1" -type f -print0)
+  if ((_n == 0)); then
+    echo "==> ERROR: no debug info found under $1; was the build configured with symbols?" >&2
+    return 1
+  fi
+  echo "Split debug info out of $_n files"
+}
+
 package() {
   cd "$_pkgsrc_runtime"
   DESTDIR="$pkgdir" ./mach install
+  if [[ "${_build_debug_symbols::1}" == "t" ]]; then
+    _split_debug "$pkgdir/$_install_path/$_pkgname" || return 1
+  fi
 
   local vendorjs="$pkgdir/$_install_path/$_pkgname/browser/defaults/preferences/vendor.js"
   install -Dm644 /dev/stdin "$vendorjs" << END
