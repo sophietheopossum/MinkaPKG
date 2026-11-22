@@ -1,0 +1,5 @@
+# Arch's 64-bit libcaca, whose tag and patches this package builds.
+kind=watch-package
+package=libcaca
+auto=no
+note=copy what changed in Arch's libcaca PKGBUILD (tag, patches and their b2sums), then check that configure says "valid output drivers... x11" and that check() passes

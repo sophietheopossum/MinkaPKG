@@ -1,0 +1,206 @@
+# Maintainer: Sophie <goldsnakeking@gmail.com>
+#
+# The 32-bit libcaca. Packaged like the AUR's lib32-libcaca (Felix Yan, Limao
+# Luo, GordonGR), from the source Arch's 64-bit libcaca builds (Balló György,
+# Jan Alexander Steffens, Jan de Groot). It replaces the AUR package under the
+# same name.
+#
+# WHY: lib32-libcaca left [multilib] for the AUR, as lib32-imlib2 and
+# lib32-gst-plugins-good did. The AUR's 0.99.beta20-2 still depends on
+# lib32-imlib2, and the AUR's lib32-imlib2 1.13.0 does not build here: its
+# makedepends chain (lib32-libspectre -> lib32-ghostscript -> lib32-tesseract
+# -> lib32-libarchive) is broken, so updates failed. The dependency is stale.
+# Only the tools cacaview and img2txt use imlib2, and the package deletes
+# every tool except caca-config. The library never linked it: the [multilib]
+# build needs only libX11.so.6, libz.so.1 and libc.so.6. Two installed
+# packages need lib32-libcaca: lib32-gst-plugins-good (its cacasink plugin
+# links it) and steam-native-runtime. With this one installed nothing needs
+# lib32-imlib2 any more, and `pacman -Rs lib32-imlib2` removes it alone
+# (checked 21/11/2026 against a copy of the package database).
+#
+# "The [multilib] build" is the 0.99.beta20-2 installed here: Arch's last
+# [multilib] package, signed and built on 7/9/2024. Everything below was
+# compared with it. It is not a build of the AUR's PKGBUILD, which has the
+# same version and depends= but would give other drivers here (see below).
+#
+# WHAT DIFFERS FROM THE AUR PACKAGE
+#
+# - depends= has no lib32-imlib2. It lists what the library links:
+#   lib32-glibc, lib32-libx11 and lib32-zlib (lib32-zlib-ng-compat provides
+#   it here). libcaca stays, as in the AUR: the 32-bit library reads no file
+#   of it, but caca.pc and caca-config-32 point at its headers in
+#   /usr/include, which are the same for both arches.
+# - The source is Arch's: tag v0.99.beta20 (commit 373c88b9, the one the AUR
+#   pins) plus Arch's two patches, with Arch's b2sums instead of SKIP. The
+#   CVE-2022-0856 patch fixes img2txt, which is not built here. The LTO patch
+#   fixes configure's fsin/fcos test, which passes on x86 with or without it.
+#   So the library is built from the same code as the AUR's.
+# - Every driver and feature is a configure switch (see build()), and
+#   --enable-option-checking=fatal makes a misspelt one an error. The AUR
+#   leaves most of them to autodetection, so its result depends on what the
+#   build host has installed. Its switches on this machine (21/11/2026) give
+#   the drivers "x11 ncurses", because lib32-ncurses is installed: one more
+#   dependency, which the AUR package does not declare. These switches give
+#   the drivers the [multilib] build has: x11, plus raw and null, which are
+#   always built.
+# - Only caca/ is built: the library and caca.pc. The AUR builds the tools,
+#   examples and bindings too, then deletes them. caca-config comes from
+#   configure.
+# - prepare() starts from a clean checkout every time. minkarepo runs makepkg
+#   without -C, so src/ keeps the previous build.
+# - check() runs upstream's simple test as a 32-bit program. It also fails if
+#   the library links anything but libX11, libz and libc, because depends=
+#   would then be wrong.
+# - pkgrel is 2, the same as the AUR package's.
+# - license is the SPDX name WTFPL, as in Arch's libcaca.
+#
+# COMPARED WITH the [multilib] build on 21/11/2026: the same files, soname
+# (libcaca.so.0) and NEEDED; the same 213 exported symbols; the same display
+# drivers, export and import formats and built-in fonts. One import changed:
+# sscanf is now __isoc23_sscanf@GLIBC_2.38, as GCC 16 compiles C23.
+#
+# No -D_FILE_OFFSET_BITS=64. That was imlib2's problem: a 32-bit stat() fails
+# with EOVERFLOW on bcachefs, whose inode numbers do not fit in 32 bits.
+# libcaca imports no stat, fopen, readdir or lseek. caca_file_open() goes
+# through zlib's gzopen(), and its public header has no off_t or time_t.
+# Reading and writing files with inode numbers above 2^32 works (tested).
+# Its timers call the 32-bit gettimeofday(), as the [multilib] build's do.
+#
+# Arch's libtool sed for --as-needed is left out. libtool 2.6 already puts
+# LDFLAGS' -Wl,--as-needed in front of -lX11 -lz, and check() catches an
+# unneeded library.
+#
+# TO BUMP: copy what changed in Arch's libcaca PKGBUILD (tag, patches and
+# their b2sums), then check that configure says "checking valid output
+# drivers... x11" and that check() passes. Arch's commits:
+# https://gitlab.archlinux.org/archlinux/packaging/packages/libcaca/-/commits/main
+
+pkgname=lib32-libcaca
+pkgver=0.99.beta20
+pkgrel=2
+pkgdesc='Color AsCii Art library (32-bit)'
+arch=(x86_64)
+url='http://caca.zoy.org/wiki/libcaca'
+license=(WTFPL)
+depends=(
+  lib32-glibc
+  lib32-libx11
+  lib32-zlib
+  libcaca
+)
+# lib32-gcc-libs: the 32-bit libgcc_s that `gcc -m32` links.
+makedepends=(
+  git
+  lib32-gcc-libs
+)
+source=(
+  "git+https://github.com/cacalabs/libcaca.git#tag=v$pkgver"
+  libcaca-0.99.beta20-CVE-2022-0856.patch
+  libcaca-0.99.beta20-config-lto.patch
+)
+b2sums=('2965c38a6ecb8f9384741ac707f60ba7c6b7e290303f0f2c5f5b9dd28ce89580012c7db647dff15f9dc012fe3e47caa713162d40ffb29f428739db3a66a94e6b'
+        '82bc7243844238089c5f513738bd9e95ac6cb88b16202db0655592e4037732a8353b72e5bd26ad73cdb32ad2da5d864bbb9ee5196bc0c3d2805c397e7686f728'
+        '1cfd28a3777cec6cb8f2bab8ae2f6d9496452e40dd7f0f7a7cf67ebef1a4ac48390e63ce464b1283207545fe8fe050f9789cf39202b513d3d22291dc84521f10')
+
+prepare() {
+  cd libcaca
+
+  # Throw away the previous build. makepkg's forced checkout resets the files
+  # git tracks, but not what the last build generated (configure, libtool,
+  # objects, the library), which make would reuse. The reset is in case that
+  # checkout ever stops being forced: the patches only apply to a clean tree.
+  git reset --hard -q
+  git clean -fdxq
+
+  # Prevent a divide-by-zero by checking for a zero width or height
+  # https://github.com/cacalabs/libcaca/pull/66
+  git apply -3 ../libcaca-0.99.beta20-CVE-2022-0856.patch
+
+  # Disable LTO when checking for fsin/fcos/fldln2/
+  # https://github.com/cacalabs/libcaca/pull/76
+  git apply -3 ../libcaca-0.99.beta20-config-lto.patch
+
+  autoreconf -fiv
+}
+
+build() {
+  export CC='gcc -m32'
+  export CXX='g++ -m32'
+  export PKG_CONFIG='i686-pc-linux-gnu-pkg-config'
+
+  cd libcaca
+  # --enable-x11 stops configure if lib32-libx11 is missing, and no
+  # autodetection overrides a --disable. --enable-network is left out:
+  # configure accepts it but ignores it. It would only matter for
+  # cacaserver, and src/ is not built.
+  ./configure \
+    --build=x86_64-pc-linux-gnu \
+    --prefix=/usr \
+    --libdir=/usr/lib32 \
+    --libexecdir=/usr/lib \
+    --mandir=/usr/share/man \
+    --sysconfdir=/etc \
+    --localstatedir=/var \
+    --enable-option-checking=fatal \
+    --enable-shared \
+    --disable-static \
+    --enable-x11 \
+    --disable-ncurses \
+    --disable-slang \
+    --disable-gl \
+    --disable-conio \
+    --disable-win32 \
+    --disable-cocoa \
+    --disable-vga \
+    --disable-kernel \
+    --disable-plugins \
+    --disable-imlib2 \
+    --disable-cxx \
+    --disable-csharp \
+    --disable-java \
+    --disable-python \
+    --disable-ruby \
+    --disable-doc \
+    --disable-cppunit \
+    --disable-zzuf \
+    --disable-debug \
+    --disable-profiling
+  make -C caca
+}
+
+check() {
+  cd libcaca
+
+  # Upstream's test exits 0 even when a test fails, so read its summary.
+  local out
+  out=$(./caca/t/simple 2>&1)
+  if [[ $out != '6 tests, 0 errors' ]]; then
+    echo "caca/t/simple: $out" >&2
+    return 1
+  fi
+
+  # The soname link, not libcaca.so.0.99.20: that name follows LT_MICRO and
+  # changes with a release. Without pipefail a missing file would only give
+  # an empty list, so test for it first.
+  local lib=caca/.libs/libcaca.so.0 needed
+  if [[ ! -e $lib ]]; then
+    echo "$lib is missing" >&2
+    return 1
+  fi
+  needed=$(readelf -d "$lib" |
+    sed -n 's/.*(NEEDED).*\[\(.*\)\]$/\1/p' | LC_ALL=C sort | paste -sd ' ')
+  if [[ $needed != 'libX11.so.6 libc.so.6 libz.so.1' ]]; then
+    echo "libcaca links '$needed', not what depends= says" >&2
+    return 1
+  fi
+}
+
+package() {
+  cd libcaca
+  make -C caca DESTDIR="$pkgdir" install
+
+  # The headers are libcaca's.
+  rm -r "$pkgdir/usr/include"
+  install -Dm755 caca-config "$pkgdir/usr/bin/caca-config-32"
+  install -Dm644 -t "$pkgdir/usr/share/licenses/$pkgname/" COPYING
+}

@@ -137,6 +137,7 @@ without an `upstream` file is simply not tracked.
 | `floorp` | [Floorp-Projects/Floorp](https://github.com/Floorp-Projects/Floorp) | **Patched fork of the AUR package.** Floorp 12.17.1 will not configure: its branding sets `MOZ_APP_VENDOR` through confvars, but upstream mozilla-central made that a `project_flag` (settable only via `imply_option`), so configure dies with `InvalidOptionError`. `0002-vendor-must-be-implied-not-confvars.patch` drops the confvars assignment and moves the value to the `imply_option` in `browser/moz.configure`, which keeps the vendor as "Ablaze" — deleting the line alone would silently make it "Mozilla" and move the profile path. It must be a `.patch`, not a `sed` early in `prepare()`: the branding is rsynced in from `.github/assets/branding/` at the top of `prepare()`, and the patch loop deliberately runs after it. |
 | `floorp-dev` | [Floorp-Projects/Floorp](https://github.com/Floorp-Projects/Floorp) | Fileless metapackage holding the runtime and build dependencies for a local Floorp checkout. It neither depends on nor provides `floorp`, and installs no browser files. |
 | `hypercat` | [savannah-i-g/HyperCat-Agent](https://github.com/savannah-i-g/HyperCat-Agent) | Personality-driven multi-agent workspace application. |
+| `lib32-libcaca` | [cacalabs/libcaca](https://github.com/cacalabs/libcaca) | **Fixed rebuild of the AUR package of the same name.** The 32-bit libcaca, needed by `lib32-gst-plugins-good` and `steam-native-runtime`; it left `[multilib]` for the AUR. The AUR package still depends on `lib32-imlib2`, whose AUR build is broken, although the library never links imlib2: only the tools `cacaview` and `img2txt` do, and neither is shipped. This one drops that dependency and builds the source of Arch's 64-bit `libcaca` (its tag and two patches) with every driver set by a configure switch. It has the same files, exported symbols and drivers (x11, raw, null) as the 0.99.beta20-2 installed now, the last `[multilib]` build (the AUR's PKGBUILD, built here, would add ncurses). Its version is `0.99.beta20-2`, the same as the AUR package's. Once it is installed, `lib32-imlib2` can be removed. |
 | `minka-syu` | MinkaDE (this repo) | Update checker/notifier: Rust core + AntiWebUI window (`minka-syu-gui`), with the QML UI kept as the fallback. Built from the sibling `MinkaSyu` submodule (no source tarball); the QML UI's Proustite/MinkaLink symlinks are dereferenced into `/usr/share/minka-syu/ui`. After installing, `systemctl --user enable --now minka-syu-check.timer` for periodic checks. |
 | `lxmf-rs` | [FreeTAKTeam/LXMF-rs](https://github.com/FreeTAKTeam/LXMF-rs) | Reticulum + LXMF in Rust. Not in the AUR. `rns-tools` ships eight binary names that collide with `python-rns`, so they install to `/usr/lib/lxmf-rs/bin` instead of `/usr/bin` — see the PKGBUILD comment. |
 | `rbrowser` | [fr33n0w/rBrowser](https://github.com/fr33n0w/rBrowser) | Standalone web UI browser for NomadNet nodes and pages over Reticulum. |
@@ -144,8 +145,8 @@ without an `upstream` file is simply not tracked.
 
 ## Building a package that is also in the AUR
 
-`floorp` and `bs-manager-bin` share their `pkgname` with an AUR package, so the local
-build shadows it once `[minka]` is configured. That is intended — but `CheckAURUpdates` still
-queries the real AUR, so pamac may offer the unpatched AUR version as an
-"update". Rebuild from here rather than accepting it, or rename the package if
-that ever becomes annoying.
+`floorp`, `bs-manager-bin` and `lib32-libcaca` share their `pkgname` with
+an AUR package, so the local build shadows it once `[minka]` is configured.
+That is intended — but `CheckAURUpdates` still queries the real AUR, so
+pamac may offer the unpatched AUR version as an "update". Rebuild from here
+rather than accepting it, or rename the package if that ever becomes annoying.
