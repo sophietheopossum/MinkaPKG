@@ -1,7 +1,7 @@
 # Maintainer: Sophie <goldsnakeking@gmail.com>
 
 pkgname=minka-syu
-pkgver=0.12.0
+pkgver=0.13.1
 pkgrel=1
 pkgdesc="Update notifier, browser & installed manager: safe repo+AUR checks with provenance; applying is paru's job"
 arch=('x86_64')
@@ -37,7 +37,7 @@ _src="$_minkade/MinkaSyu"
 # first (GitKraken does). The GUI also builds the AntiWebUI checkout beside
 # it as it is (by path), which nothing here follows: after a change only
 # there, raise pkgrel by hand and run `minkarepo publish minka-syu`.
-_commit=10abfd4209dbd6dc4aa50f85a13fbaf46c44f2a9
+_commit=03171b3e4dca55b1beb3eedbadb3259d79ea6b1a
 pkgver() {
 	cd "$_src"
 	local cargo tag
