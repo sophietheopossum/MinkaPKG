@@ -22,8 +22,10 @@ optdepends=('rio: default terminal for applying updates')
 
 # No source tarball: this packages the MinkaDE checkout itself. The
 # PKGBUILD lives in MinkaPKG/minka-syu, so the app is two levels up.
-# The UI also consumes the Proustite and MinkaLink submodules through
-# symlinks inside ui/, which package() dereferences.
+# MinkaSyu and its gui/ are members of the MinkaDE Cargo workspace
+# (Cargo.toml at its top), so they build with its Cargo.lock into its
+# target/. The UI also consumes the Proustite and MinkaLink submodules
+# through symlinks inside ui/, which package() dereferences.
 _minkade="$(realpath "$startdir/../..")"
 _src="$_minkade/MinkaSyu"
 
@@ -34,9 +36,12 @@ _src="$_minkade/MinkaSyu"
 # kind=local and checkout=../../MinkaSyu, `minkarepo publish|update` does
 # that and records the commit built from in _commit=; without one, raise
 # pkgrel by hand. Uncommitted changes are built but not tracked, so commit
-# first (GitKraken does). The GUI also builds the AntiWebUI checkout beside
-# it as it is (by path), which nothing here follows: after a change only
-# there, raise pkgrel by hand and run `minkarepo publish minka-syu`.
+# first (GitKraken does). Two more inputs are not followed here: the
+# AntiWebUI checkout the GUI builds by path, and MinkaDE's root Cargo.toml
+# and Cargo.lock (shared with every workspace member, so a `cargo update`
+# or a wgpu patch bump changes this build without moving MinkaSyu's HEAD).
+# After a change only there, raise pkgrel by hand and run
+# `minkarepo publish minka-syu`.
 _commit=03171b3e4dca55b1beb3eedbadb3259d79ea6b1a
 pkgver() {
 	cd "$_src"
@@ -49,6 +54,9 @@ pkgver() {
 	if [ -n "$(git -C "$_minkade/AntiWebUI" status --porcelain 2>/dev/null)" ]; then
 		echo "warning: $_minkade/AntiWebUI has uncommitted changes; the GUI is built with them" >&2
 	fi
+	if [ -n "$(git -C "$_minkade" status --porcelain -- Cargo.toml Cargo.lock 2>/dev/null)" ]; then
+		echo "warning: $_minkade/Cargo.toml or Cargo.lock has uncommitted changes; they are built but not in the version" >&2
+	fi
 	if [ -n "$tag" ] && [ "$(vercmp "$tag" "$cargo")" -gt 0 ]; then
 		printf '%s\n' "$tag"
 	else
@@ -57,23 +65,22 @@ pkgver() {
 }
 
 build() {
-	cd "$_src"
+	cd "$_minkade"
 	export RUSTUP_TOOLCHAIN=stable
-	cargo build --frozen --release
-	cargo build --frozen --release --manifest-path gui/Cargo.toml
+	cargo build --frozen --release -p minka-syu -p minka-syu-gui
 }
 
 check() {
-	cd "$_src"
+	cd "$_minkade"
 	export RUSTUP_TOOLCHAIN=stable
-	cargo test --frozen --release
-	cargo test --frozen --release --manifest-path gui/Cargo.toml
+	cargo test --frozen --release -p minka-syu -p minka-syu-gui
 }
 
 package() {
+	install -Dm755 "$_minkade/target/release/minka-syu" "$pkgdir/usr/bin/minka-syu"
+	install -Dm755 "$_minkade/target/release/minka-syu-gui" "$pkgdir/usr/bin/minka-syu-gui"
+
 	cd "$_src"
-	install -Dm755 target/release/minka-syu "$pkgdir/usr/bin/minka-syu"
-	install -Dm755 gui/target/release/minka-syu-gui "$pkgdir/usr/bin/minka-syu-gui"
 
 	# UI. cp -rL dereferences the Proustite/MinkaLink symlinks: the
 	# installed tree must be self-contained, since the links point at
