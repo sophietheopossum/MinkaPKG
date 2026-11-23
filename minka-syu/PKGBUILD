@@ -16,14 +16,9 @@ license=('MIT')
 # for --notify. curl fetches AppStream screenshots for the detail view.
 depends=('glibc' 'libgcc' 'pacman' 'archlinux-appstream-data'
          'wayland' 'libxkbcommon' 'fontconfig' 'vulkan-icd-loader' 'curl'
-         # AntiWebUI's md3e crate turns the toolkit's X11 backend on.
-         'libxcb' 'libxkbcommon-x11')
+         'appstream' 'git' 'libnotify' 'meld' 'paru')
 makedepends=('cargo' 'git')
-optdepends=('paru: AUR update checks and applying updates'
-            'rio: default terminal for applying updates'
-            'quickshell: the QML window (fallback front end)'
-            'libnotify: desktop notifications from the check timer'
-            'appstream: package detail view (name/summary/screenshots)')
+optdepends=('rio: default terminal for applying updates')
 
 # No source tarball: this packages the MinkaDE checkout itself. The
 # PKGBUILD lives in MinkaPKG/minka-syu, so the app is two levels up.
@@ -39,7 +34,9 @@ _src="$_minkade/MinkaSyu"
 # kind=local and checkout=../../MinkaSyu, `minkarepo publish|update` does
 # that and records the commit built from in _commit=; without one, raise
 # pkgrel by hand. Uncommitted changes are built but not tracked, so commit
-# first (GitKraken does).
+# first (GitKraken does). The GUI also builds the AntiWebUI checkout beside
+# it as it is (by path), which nothing here follows: after a change only
+# there, raise pkgrel by hand and run `minkarepo publish minka-syu`.
 _commit=10abfd4209dbd6dc4aa50f85a13fbaf46c44f2a9
 pkgver() {
 	cd "$_src"
@@ -48,6 +45,9 @@ pkgver() {
 	tag=$(git describe --tags --abbrev=0 --match '[0-9]*' 2>/dev/null) || tag=
 	if [ -n "$(git status --porcelain -- . 2>/dev/null)" ]; then
 		echo "warning: $_src has uncommitted changes; they are built but not in the version" >&2
+	fi
+	if [ -n "$(git -C "$_minkade/AntiWebUI" status --porcelain 2>/dev/null)" ]; then
+		echo "warning: $_minkade/AntiWebUI has uncommitted changes; the GUI is built with them" >&2
 	fi
 	if [ -n "$tag" ] && [ "$(vercmp "$tag" "$cargo")" -gt 0 ]; then
 		printf '%s\n' "$tag"
