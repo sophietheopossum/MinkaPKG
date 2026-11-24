@@ -1,0 +1,7 @@
+# The PKGBUILD's pkgver() gives the release: the MinkaDE checkout's newest
+# numeric tag or minka/Cargo.toml's committed version, whichever is higher.
+# publish/update raise pkgrel for each newer commit on that release and
+# record the commit built from in the PKGBUILD's _commit=.
+kind=local
+checkout=../..
+auto=yes

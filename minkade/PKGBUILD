@@ -1,0 +1,75 @@
+# Maintainer: Sophie <goldsnakeking@gmail.com>
+
+pkgname=minkade
+pkgver=0.91.1
+pkgrel=1
+pkgdesc="MinkaDE as one binary: the ShojiWM compositor with Minka's config, its portal, xwayland-satellite, MinkaShell and the Minka apps"
+arch=('x86_64')
+license=('MIT' 'MPL-2.0')
+# What minka links (readelf -d: the compositor's input, seat and GBM, udev,
+# fonts, colour management, the satellite's xcb, PipeWire), then what it
+# loads at run time (EGL, Wayland, Vulkan), then what is run rather than
+# linked: Xwayland, the QML windows (quickshell), the PipeWire daemon for the
+# portal's screen casts, python for the shell's and MinkaConf's scripts, and
+# MinkaSyu's tools (pacman reads, paru applies, meld compares, appstream
+# describes).
+depends=('glibc' 'libgcc' 'libinput' 'seatd' 'mesa' 'systemd-libs' 'libxkbcommon'
+         'fontconfig' 'lcms2' 'libxcb' 'xcb-util-cursor' 'libpipewire'
+         'libglvnd' 'wayland' 'vulkan-icd-loader'
+         'xorg-xwayland' 'quickshell' 'pipewire' 'python'
+         'pacman' 'archlinux-appstream-data' 'appstream' 'curl' 'git' 'libnotify'
+         'meld' 'paru')
+makedepends=('cargo' 'git' 'rsync')
+optdepends=('rio: default terminal for applying updates'
+            'kitty: the default terminal (Super+T)'
+            'python-pillow: MinkaConf cursor previews')
+# minka-syu was its own package until MinkaSyu joined the one binary.
+provides=('minka-syu')
+conflicts=('minka-syu')
+replaces=('minka-syu')
+
+# No source tarball: this packages the MinkaDE checkout itself, two levels
+# up from here. minka (minka/ at its top) is a member of the MinkaDE Cargo
+# workspace, so it builds with its Cargo.lock into its target/. It reaches
+# ShojiWM, xwayland-satellite, smithay and AntiWebUI by path, so their
+# checkouts are part of the build as they stand.
+_minkade="$(realpath "$startdir/../..")"
+
+# The version is the release, as in Arch and CachyOS: the newest numeric git
+# tag of the MinkaDE checkout or minka/Cargo.toml's COMMITTED version,
+# whichever is higher. Rebuilds of newer commits on the same release raise
+# pkgrel: `minkarepo publish|update` does that (minkade/upstream) and records
+# the commit built from in _commit=. That is a commit of the superproject: a
+# submodule's new commits count once its pointer is committed there.
+# Uncommitted changes anywhere in the checkout are built but not tracked.
+_commit=54fdedc75f743238df6df4add054cfa8be363284
+pkgver() {
+	cd "$_minkade"
+	local cargo tag
+	cargo=$(git show HEAD:minka/Cargo.toml | sed -n 's/^version = "\(.*\)"$/\1/p' | head -n1)
+	tag=$(git describe --tags --abbrev=0 --match '[0-9]*' 2>/dev/null) || tag=
+	if [ -n "$(git status --porcelain --ignore-submodules=none 2>/dev/null)" ]; then
+		echo "warning: $_minkade has uncommitted changes or moved submodules; they are built but not in the version" >&2
+	fi
+	if [ -n "$tag" ] && [ "$(vercmp "$tag" "$cargo")" -gt 0 ]; then
+		printf '%s\n' "$tag"
+	else
+		printf '%s\n' "$cargo"
+	fi
+}
+
+build() {
+	cd "$_minkade"
+	export RUSTUP_TOOLCHAIN=stable
+	cargo build --frozen --release -p minka
+}
+
+check() {
+	cd "$_minkade"
+	export RUSTUP_TOOLCHAIN=stable
+	cargo test --frozen --release -p minka-syu -p minka-syu-gui
+}
+
+package() {
+	"$_minkade/packaging/stage-usr.sh" "$pkgdir" "$_minkade/target/release/minka"
+}
