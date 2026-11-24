@@ -1,7 +1,7 @@
 # Maintainer: Sophie <goldsnakeking@gmail.com>
 
 pkgname=minkade
-pkgver=0.92.0
+pkgver=0.93.0
 pkgrel=1
 pkgdesc="MinkaDE as one binary: the ShojiWM compositor with Minka's config, its portal, xwayland-satellite, MinkaShell and the Minka apps"
 arch=('x86_64')
@@ -42,7 +42,7 @@ _minkade="$(realpath "$startdir/../..")"
 # the commit built from in _commit=. That is a commit of the superproject: a
 # submodule's new commits count once its pointer is committed there.
 # Uncommitted changes anywhere in the checkout are built but not tracked.
-_commit=06bb5efa251d0304c679799500595c4d84e81b0f
+_commit=0d041fb3e98ae9a37e3eb76b2eeea9e0687ba1cb
 pkgver() {
 	cd "$_minkade"
 	local cargo tag
