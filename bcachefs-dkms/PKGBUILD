@@ -1,15 +1,22 @@
 # Maintainer: Sophie <goldsnakeking@gmail.com>
 
 # Local rebuild of Arch's bcachefs-dkms 1.39.7 (dkms-only; the tools
-# package is unmodified from the repos) with a kernel 7.3 build fix —
-# 7/11/2026:
+# package is unmodified from the repos) with kernel 7.3 build fixes.
 #
+# 7/11/2026:
 #   Upstream kernel 7.3 removed the task_euid() macro, which the vendored
 #   Rust helpers in 1.39.7 still call, so the DKMS build fails outright.
 #   0002 expands it via task_cred_xxx(), exactly what it used to be.
 #
+# 25/11/2026:
+#   Stable kernel 7.3.6 removed kernel::workqueue::system_unbound() from
+#   the kernel's Rust crate (system_dfl() replaces it), and 1.39.7 calls
+#   it when it builds with that crate. 0003 builds the queue from the C
+#   global system_dfl_wq instead, which also builds on 6.17 through
+#   7.3.5 (6.16 has no system_dfl_wq).
+#
 # Versioning is deliberate: epoch matches upstream (3), pkgver matches
-# (1.39.7), and pkgrel=2 sits above extra (1) and cachyos-extra-v4 (1.1)
+# (1.39.7), and pkgrel sits above extra (1) and cachyos-extra-v4 (1.1)
 # so this package installs now — while any newer upstream release
 # (pkgver bump or higher pkgrel) automatically supersedes it on -Syu.
 # Delete this package once the repo version builds on current kernels.
@@ -17,7 +24,7 @@
 pkgname=bcachefs-dkms
 epoch=3
 pkgver=1.39.7
-pkgrel=2
+pkgrel=1.1
 pkgdesc='BCacheFS filesystem utilities'
 arch=('x86_64')
 url='https://bcachefs.org/'
@@ -37,15 +44,18 @@ source=(
   "git+https://github.com/koverstreet/bcachefs-tools.git#tag=v${pkgver}"
   0001-do-not-load-binary-modules-for-dkms-package.patch
   0002-rust-helpers-replace-removed-task_euid.patch
+  0003-rust-workqueue-build-the-queue-from-system_dfl_wq.patch
 )
 b2sums=('SKIP'
         '55cc2148c23a18f1d286fb77941a03b41ee4b3748728e517e5af06ec88fab41262c67b603907b0da8319bc5f08ff1667edc1480284bd4d3aca72c5412cb68e9f'
-        '3e0ff1a32f490a4273c58846ccdeb39d936d662a956a68ee4d7c853d43069e36f5a1613569479ecfdcdd0d6cdff4f5961c38ae5ba2359241b48860b59d634c5b')
+        '3e0ff1a32f490a4273c58846ccdeb39d936d662a956a68ee4d7c853d43069e36f5a1613569479ecfdcdd0d6cdff4f5961c38ae5ba2359241b48860b59d634c5b'
+        '0544e8d27c350ff7b3f82168a0aceb39d10c14fd14182a0eb2452d9b2d9b15941a2e10edb43e70afdac4abb22dfb07039f7d3685e7219841152cca0b6dab2a30')
 
 prepare() {
   cd bcachefs-tools
   patch -Np1 < ../0001-do-not-load-binary-modules-for-dkms-package.patch
   patch -Np1 < ../0002-rust-helpers-replace-removed-task_euid.patch
+  patch -Np1 < ../0003-rust-workqueue-build-the-queue-from-system_dfl_wq.patch
 }
 
 package() {

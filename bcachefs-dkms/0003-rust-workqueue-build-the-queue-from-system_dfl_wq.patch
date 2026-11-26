@@ -1,0 +1,28 @@
+Stable kernel 7.3.6 took mainline 10ff62c6bb0b ("rust: workqueue: replace
+deprecated system_wq with system_{percpu,dfl}_wq"), which removes
+kernel::workqueue::system_unbound() and adds system_dfl(). Built with the
+kernel's own Rust crate, 1.39.7 then stops at:
+
+  error[E0425]: cannot find function `system_unbound` in module `kernel::workqueue`
+
+No getter for the unbound queue is in both 7.3.5 and 7.3.6, so one source
+cannot call either. The C global system_dfl_wq (6.17 and later) and
+Queue::from_raw() are in both: build the queue from those, which is what
+system_dfl() itself does and what upstream master does now. The only
+caller is the perf test.
+
+diff --git a/fs/util/async_exec.rs b/fs/util/async_exec.rs
+--- a/fs/util/async_exec.rs
++++ b/fs/util/async_exec.rs
+@@ -185,7 +185,10 @@
+ 
+ #[cfg(kernel)]
+ pub fn system_unbound() -> &'static Queue {
+-    kernel::workqueue::system_unbound()
++    // Not a kernel-crate getter: that was workqueue::system_unbound() up to
++    // 7.3.5 and is workqueue::system_dfl() from 7.3.6. The C global is in both.
++    // SAFETY: `system_dfl_wq` is a C global that lives as long as the kernel.
++    unsafe { Queue::from_raw(kernel::bindings::system_dfl_wq) }
+ }
+ 
+ // ---- WaitGroup: an async fork-join barrier ----

@@ -4,4 +4,4 @@ tag_regex=^v[0-9]+(\.[0-9]+)*$
 auto=no
 # CachyOS rebuilds as x-1.1 and its repo is above [minka]: pkgrel 1 would lose.
 pkgrel_new=2
-note=boot-critical (the root filesystem needs it): re-check both patches, and refresh the rescue entry (make-rescue.sh) after the new module has booted
+note=boot-critical (the root filesystem needs it): re-check all three patches, and refresh the rescue entry (make-rescue.sh) after the new module has booted
